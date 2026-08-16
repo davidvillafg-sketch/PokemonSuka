@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pokemon Custom VGC Battle</title>
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #1e272c;
+        color: #ecf0f1;
+        margin: 0;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        box-sizing: border-box;
+    }
+    h1, h2, h3 { margin: 5px 0; text-align: center; color: #f39c12; }
+    .screen { display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
+    .hidden { display: none !important; }
+
+    #select-screen { overflow-y: auto; padding: 10px; }
+    .roster-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+    .poke-card {
+        background: #2c3e50;
+        border: 2px solid #34495e;
+        border-radius: 8px;
+        padding: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .poke-card.selected { border-color: #2ecc71; background: #27ae6033; }
+    .poke-card h4 { margin: 0 0 5px 0; color: #3498db; }
+    .poke-card p { margin: 2px 0; font-size: 0.85em; }
+
+    .battle-container { display: flex; flex-direction: column; flex-grow: 1; gap: 10px; }
+    .field-status {
+        background: #34495e; padding: 8px; border-radius: 6px; font-size: 0.9em;
+        display: flex; justify-content: space-around; text-align: center; flex-wrap: wrap;
+    }
+    .battleboard {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+        background: #2c3e50; padding: 10px; border-radius: 8px;
+    }
+    .trainer-side { display: flex; flex-direction: column; gap: 10px; }
+    .active-slot {
+        background: #1a252f; border: 1px solid #4e6d8c; border-radius: 6px;
+        padding: 8px; font-size: 0.85em; cursor: default;
+    }
+    .active-slot.targetable { border-color: #f39c12; cursor: pointer; }
+    .active-slot.targetable:hover { background: #2c3e50; }
+    .active-slot .status-tag {
+        display: inline-block; background: #8e44ad; color: #fff; font-size: 0.75em;
+        border-radius: 3px; padding: 1px 4px; margin-left: 4px;
+    }
+    .active-slot .stage-tag {
+        display: inline-block; background: #16a085; color: #fff; font-size: 0.7em;
+        border-radius: 3px; padding: 1px 3px; margin: 1px;
+    }
+    .hp-bar-container { background: #444; border-radius: 4px; height: 10px; width: 100%; margin: 4px 0; overflow: hidden; }
+    .hp-bar-fill { background: #2ecc71; height: 100%; width: 100%; transition: width 0.3s; }
+    #log {
+        flex-grow: 1; background: #111; border: 1px solid #333; border-radius: 6px;
+        padding: 10px; overflow-y: auto; font-family: monospace; font-size: 0.85em;
+        line-height: 1.4; max-height: 180px;
+    }
+    .controls-area { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; background: #34495e; padding: 10px; border-radius: 8px; }
+    .moves-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    button {
+        background: #e74c3c; color: white; border: none; border-radius: 6px;
+        padding: 8px; font-weight: bold; cursor: pointer; font-size: 0.85em;
+    }
+    button:hover { background: #c0392b; }
+    button:disabled { background: #7f8c8d; cursor: not-allowed; }
+    .secondary-btn { background: #2980b9; }
+    .secondary-btn:hover { background: #1f618d; }
+    .modal-overlay {
+        position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.75);
+        display: flex; align-items: center; justify-content: center; z-index: 50;
+    }
+    .modal-box {
+        background: #2c3e50; border: 2px solid #f39c12; border-radius: 8px; padding: 15px;
+        max-width: 90%; max-height: 80%; overflow-y: auto;
+    }
+    .modal-box button { display:block; width: 100%; margin: 4px 0; text-align: left; background:#34495e; }
+    .modal-box button:hover { background:#4e6d8c; }
+</style>
+</head>
+<body>
+
+<div id="select-screen" class="screen">
+    <h2>Seleziona la squadra (4 Pokémon ciascuno)</h2>
+    <h3 id="selector-title" style="color: #2ecc71;">Turno: Giocatore 1 (Selezionati: 0/4)</h3>
+    <div id="roster-grid" class="roster-grid"></div>
+    <button id="confirm-selection" disabled onclick="confirmPlayerSelection()" style="padding: 12px; font-size: 1.1em; background: #27ae60;">Conferma Squadra Giocatore 1</button>
+</div>
+
+<div id="battle-screen" class="screen hidden">
+    <div class="field-status" id="field-status-bar"></div>
+    <div class="battleboard">
+        <div class="trainer-side">
+            <h3 id="p1-name-label">Giocatore 1</h3>
+            <div class="active-slot" id="p1-slot-0"></div>
+            <div class="active-slot" id="p1-slot-1"></div>
+        </div>
+        <div class="trainer-side">
+            <h3 id="p2-name-label">Giocatore 2</h3>
+            <div class="active-slot" id="p2-slot-0"></div>
+            <div class="active-slot" id="p2-slot-1"></div>
+        </div>
+    </div>
+    <div id="log"></div>
+    <div class="controls-area" id="controls-area">
+        <div>
+            <h4 id="current-actor-label">Tocca a: -</h4>
+            <div class="moves-grid" id="moves-grid"></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px; justify-content: center;">
+            <button class="secondary-btn" onclick="openSwitchMenu()">Cambia Pokémon</button>
+            <button class="secondary-btn" onclick="skipTurn()">Salta Turno</button>
+        </div>
+    </div>
+</div>
+
+<div id="modal-root"></div>
+
+<script>
+/* =========================================================================
+   DATI DI BASE
+   ========================================================================= */
+const RAW_POKEMON_DATA = [
+    { name:"Pie", gender:"Maschio", base:{HP:90,Atk:76,Def:85,SpA:103,SpD:85,Spe:81}, types:["Lercio","Chill"], ability:"fascino di pie",
+      moves:[
+        {name:"Peto tossico", type:"Lercio", category:"Speciale", bp:15, target:"All Opponents", effect:"hyper_poison"},
+        {name:"Sorriso", type:"Chill", category:"Stato", bp:0, priority:3, target:"Self", effect:"protect_and_terrain_chill"},
+        {name:"Sguardo", type:"Chill", category:"Stato", bp:0, target:"Single Target", effect:"stat_down_atk_spa"},
+        {name:"Attacco fungo", type:"Lercio", category:"Fisico", bp:40, target:"Single Target", effect:"fungo_status"}
+      ]},
+    { name:"Isco", gender:"Maschio", base:{HP:75,Atk:100,Def:110,SpA:65,SpD:110,Spe:60}, types:["Alcol","Esotico"], ability:"Giro di Shot",
+      moves:[
+        {name:"Lattina", type:"Alcol", category:"Fisico", bp:90, target:"Single Target"},
+        {name:"Anguria Drum", type:"Esotico", category:"Stato", bp:0, target:"Self", effect:"anguria_drum"},
+        {name:"Birra", type:"Alcol", category:"Stato", bp:0, target:"Self", effect:"birra_heal"},
+        {name:"Medusa", type:"Esotico", category:"Stato", bp:0, target:"Single Target", effect:"medusa_effect"}
+      ]},
+    { name:"Feb", gender:"Maschio", base:{HP:70,Atk:170,Def:61,SpA:82,SpD:56,Spe:81}, types:["Fumo","Fitness"], ability:"Scopiamo",
+      moves:[
+        {name:"Fermii", type:"Fumo", category:"Stato", bp:0, target:"All Opponents", effect:"fermii_flinch"},
+        {name:"Contrasto letale", type:"Fitness", category:"Fisico", bp:150, target:"Single Target", effect:"recoil_33"},
+        {name:"Drift", type:"Fumo", category:"Stato", bp:0, target:"Self", accuracy:50, effect:"drift_effect"},
+        {name:"Rutto", type:"Lercio", category:"Speciale", bp:60, priority:1, target:"Single Target", effect:"rutto_effect"}
+      ]},
+    { name:"Giana", gender:"Maschio", base:{HP:89,Atk:10,Def:60,SpA:161,SpD:80,Spe:120}, types:["Fumo","Ingegno"], ability:"Ottimizzazione",
+      moves:[
+        {name:"Punto Chill", type:"Chill", category:"Stato", bp:0, target:"Single Target", effect:"punto_chill"},
+        {name:"Disturbo Alimentare", type:"Cibo", category:"Speciale", bp:70, target:"All Opponents", effect:"da_status", stab:true},
+        {name:"Pausa Siga", type:"Fumo", category:"Stato", bp:0, priority:3, target:"Self", effect:"pausa_siga"},
+        {name:"Argomentazione", type:"Ingegno", category:"Speciale", bp:70, target:"Single Target", effect:"argomentazione"}
+      ]},
+    { name:"Poppe", gender:"Maschio", base:{HP:80,Atk:110,Def:78,SpA:110,SpD:78,Spe:64}, types:["Ingegno","Fitness"], ability:"Richiamo di Becchio",
+      moves:[
+        {name:"Posing", type:"Fitness", category:"Stato", bp:0, target:"Self", effect:"posing"},
+        {name:"Corto circuito", type:"Ingegno", category:"Speciale", bp:130, target:"All Pokemon", effect:"burn_status"},
+        {name:"Attacco Squalo Limone", type:"Esotico", category:"Fisico", bp:80, priority:1, target:"Single Target", effect:"squalo_limone"},
+        {name:"Cucciolone", type:"Puro", category:"Stato", bp:0, target:"Single Target", effect:"cucciolone"}
+      ]},
+    { name:"Andra", gender:"Maschio", base:{HP:80,Atk:150,Def:110,SpA:45,SpD:55,Spe:95}, types:["Terrone","Fitness"], ability:"Grounding",
+      moves:[
+        {name:"Make it Gold Rain", type:"Terrone", category:"Fisico", bp:120, accuracy:90, target:"All Opponents", effect:"gold_rain"},
+        {name:"Shadow Boxing", type:"Fitness", category:"Stato", bp:0, target:"Self", effect:"shadow_boxing"},
+        {name:"Pugni Merda", type:"Lercio", category:"Fisico", bp:90, target:"Single Target", effect:"pugni_merda"},
+        {name:"Bomba d'Acqua", type:"Lercio", category:"Fisico", bp:140, target:"Single Target", effect:"bomba_acqua"}
+      ]},
+    { name:"Steo", gender:"Maschio", base:{HP:65,Atk:165,Def:90,SpA:45,SpD:60,Spe:95}, types:["Fitness","Dittatore"], ability:"camerata",
+      moves:[
+        {name:"pisello storto", type:"Fitness", category:"Fisico", bp:40, target:"Single Target", effect:"crit_always"},
+        {name:"Viva il duce", type:"Dittatore", category:"Fisico", bp:40, target:"Single Target", effect:"viva_il_duce"},
+        {name:"Arhhhh", type:"Dittatore", category:"Speciale", bp:65, target:"Single Target"},
+        {name:"Squarta neri", type:"Dittatore", category:"Fisico", bp:30, target:"Single Target", effect:"squarta_neri"}
+      ]},
+    { name:"Lalla", gender:"Femmina", base:{HP:100,Atk:88,Def:110,SpA:75,SpD:86,Spe:61}, types:["Puro","Terrone"], ability:"Infermiera",
+      moves:[
+        {name:"Accudire", type:"Puro", category:"Stato", bp:0, target:"All Allies", effect:"accudire"},
+        {name:"Baffetto", type:"Terrone", category:"Stato", bp:0, target:"All Pokemon", effect:"baffetto"},
+        {name:"Urlo terrone", type:"Terrone", category:"Speciale", bp:90, target:"Single Target"},
+        {name:"Reginetta", type:"Puro", category:"Stato", bp:0, target:"All Allies", effect:"reginetta"}
+      ]},
+    { name:"Ksenija", gender:"Femmina", base:{HP:90,Atk:90,Def:115,SpA:80,SpD:115,Spe:30}, types:["Puro","Esotico"], ability:"Poliglotta",
+      moves:[
+        {name:"Rutto", type:"Lercio", category:"Speciale", bp:60, priority:1, target:"Single Target", effect:"rutto_effect"},
+        {name:"Svenimento", type:"Puro", category:"Stato", bp:0, target:"Self", effect:"svenimento"},
+        {name:"Calcio balcanico", type:"Esotico", category:"Fisico", bp:110, target:"Single Target", effect:"calcio_balcanico"},
+        {name:"Riposino", type:"Puro", category:"Stato", bp:0, target:"Self", effect:"riposino"}
+      ]},
+    { name:"Franca", gender:"Femmina", base:{HP:70,Atk:80,Def:80,SpA:130,SpD:80,Spe:80}, types:["Puro","Cibo"], ability:"discussione",
+      moves:[
+        {name:"spara sushi", type:"Cibo", category:"Speciale", bp:30, target:"Single Target", effect:"multi_hit"},
+        {name:"Prenotata", type:"Puro", category:"Stato", bp:0, target:"Single Target", effect:"prenotata"},
+        {name:"Squarta neri", type:"Dittatore", category:"Fisico", bp:30, target:"Single Target", effect:"squarta_neri"},
+        {name:"Pollo arrosto", type:"Cibo", category:"Stato", bp:0, target:"Self", effect:"heal_full"}
+      ]},
+    { name:"Fera", gender:"Femmina", base:{HP:70,Atk:51,Def:100,SpA:130,SpD:100,Spe:69}, types:["Terrone","Puro"], ability:"gran voce",
+      moves:[
+        {name:"Cannata!!!", type:"Terrone", category:"Speciale", bp:50, accuracy:80, sound:true, target:"Single Target", effect:"cannata"},
+        {name:"Altini Marito", type:"Puro", category:"Stato", bp:0, target:"Single Target", effect:"altini_marito"},
+        {name:"Croste", type:"Terrone", category:"Speciale", bp:60, target:"Single Target", effect:"croste"},
+        {name:"Nuvole", type:"Puro", category:"Speciale", bp:80, sound:true, target:"Single Target", effect:"nuvole"}
+      ]},
+    { name:"Altini", gender:"Maschio", base:{HP:65,Atk:132,Def:52,SpA:132,SpD:54,Spe:85}, types:["Puro","Dittatore"], ability:"goblin",
+      moves:[
+        {name:"Bomba Pesto", type:"Cibo", category:"Speciale", bp:100, target:"Single Target"},
+        {name:"Balzata", type:"Puro", category:"Stato", bp:0, priority:3, target:"Self", effect:"protect_self"},
+        {name:"Squarta neri", type:"Dittatore", category:"Fisico", bp:30, target:"Single Target", effect:"squarta_neri"},
+        {name:"Low cortisol", type:"Chill", category:"Stato", bp:0, target:"Self", effect:"low_cortisol"}
+      ]},
+    { name:"Matte Iliev", gender:"Maschio", base:{HP:90,Atk:120,Def:90,SpA:60,SpD:80,Spe:80}, types:["Cibo","Fitness"], ability:"baffo",
+      moves:[
+        {name:"Pescare", type:"Cibo", category:"Fisico", bp:70, target:"Single Target", effect:"trap_target"},
+        {name:"Kart", type:"Fitness", category:"Stato", bp:0, target:"All Allies", effect:"kart"},
+        {name:"Bibitone", type:"Fitness", category:"Stato", bp:0, target:"Self", effect:"bibitone"},
+        {name:"All in", type:"Lercio", category:"Fisico", bp:0, accuracy:50, target:"Single Target", effect:"all_in"}
+      ]},
+    { name:"Ressa", gender:"Maschio", base:{HP:70,Atk:54,Def:60,SpA:120,SpD:140,Spe:56}, types:["Fumo","Alcol"], ability:"Consegna delle Verifiche",
+      moves:[
+        {name:"Alla Lavagna!", type:"Ingegno", category:"Stato", bp:0, accuracy:75, target:"All Opponents", effect:"alla_lavagna"},
+        {name:"Whisky", type:"Alcol", category:"Stato", bp:0, target:"Single Target", effect:"whisky"},
+        {name:"Mignolo Appuntito", type:"Lercio", category:"Fisico", bp:40, target:"Single Target", effect:"mignolo_appuntito"},
+        {name:"Signorina D'Aloia", type:"Ingegno", category:"Speciale", bp:50, target:"All Pokemon", effect:"signorina_daloia"}
+      ]},
+    { name:"Becchio", gender:"Femmina", base:{HP:70,Atk:55,Def:70,SpA:130,SpD:110,Spe:65}, types:["Dittatore","Ingegno"], ability:"Poppe A Casa!",
+      moves:[
+        {name:"Esame a Sorpresa", type:"Ingegno", category:"Speciale", bp:40, target:"All Pokemon", effect:"esame_sorpresa"},
+        {name:"Gender Pay Gap", type:"Ingegno", category:"Stato", bp:0, target:"All Pokemon", effect:"gender_pay_gap"},
+        {name:"Subito a Casa!", type:"Dittatore", category:"Stato", bp:0, target:"Single Target", effect:"subito_a_casa"},
+        {name:"Insulto Gratuito", type:"Dittatore", category:"Speciale", bp:80, target:"Single Target"}
+      ]},
+    { name:"Salvo", gender:"Maschio", base:{HP:75,Atk:130,Def:130,SpA:85,SpD:60,Spe:40}, types:["Cibo","Alcol"], ability:"Doppiatore",
+      moves:[
+        {name:"Bomba 'e Maradona", type:"Terrone", category:"Fisico", bp:90, target:"Single Target", effect:"bomba_maradona", stab:true},
+        {name:"Step Back", type:"Fitness", category:"Stato", bp:0, target:"Self", effect:"step_back"},
+        {name:"Pizza Time", type:"Cibo", category:"Stato", bp:0, target:"Self", effect:"pizza_time"},
+        {name:"Whisky", type:"Alcol", category:"Stato", bp:0, target:"Single Target", effect:"whisky"}
+      ]},
+    { name:"Rebi", gender:"Femmina", base:{HP:75,Atk:90,Def:90,SpA:95,SpD:90,Spe:80}, types:["Puro","Terrone"], ability:"Innocenza",
+      moves:[
+        {name:"Bang!", type:"Puro", category:"Fisico", bp:80, target:"Single Target", effect:"bang"},
+        {name:"Briscola Gigante", type:"Terrone", category:"Stato", bp:0, target:"All Pokemon", effect:"briscola_gigante"},
+        {name:"Rifiuto", type:"Puro", category:"Stato", bp:0, priority:3, target:"Self", effect:"rifiuto"},
+        {name:"Depilazione Laser", type:"Puro", category:"Speciale", bp:120, target:"Single Target", effect:"depilazione_laser"}
+      ]},
+    { name:"Mimmuzzo", gender:"Maschio", base:{HP:130,Atk:120,Def:130,SpA:35,SpD:65,Spe:20}, types:["Cibo","Terrone"], ability:"Soppressata",
+      moves:[
+        {name:"Cinematografo", type:"Esotico", category:"Stato", bp:0, target:"All Pokemon", effect:"cinematografo"},
+        {name:"Ringraziando Iddio", type:"Terrone", category:"Stato", bp:0, target:"All Allies", effect:"ringraziando_iddio"},
+        {name:"Cuscino Peloso", type:"Terrone", category:"Stato", bp:0, target:"Single Target", effect:"cuscino_peloso"},
+        {name:"Colpo di Salame", type:"Terrone", category:"Fisico", bp:80, target:"Single Target"}
+      ]},
+    { name:"Sara", gender:"Femmina", base:{HP:85,Atk:70,Def:110,SpA:80,SpD:105,Spe:70}, types:["Chill","Fumo"], ability:"Divano e Canna",
+      moves:[
+        {name:"Morso di Zack", type:"Lercio", category:"Fisico", bp:40, target:"Single Target", effect:"hyper_poison_single"},
+        {name:"Scenerata", type:"Fumo", category:"Speciale", bp:75, target:"Single Target", effect:"burn_status_single"},
+        {name:"Ordine su Glovo", type:"Cibo", category:"Stato", bp:0, priority:-6, target:"Self", effect:"ordine_glovo"},
+        {name:"Serie TV", type:"Chill", category:"Speciale", bp:20, target:"All Opponents", effect:"serie_tv"}
+      ]},
+    { name:"Elena", gender:"Femmina", base:{HP:75,Atk:75,Def:75,SpA:100,SpD:95,Spe:100}, types:["Chill","Puro"], ability:"Tolleranza",
+      moves:[
+        {name:"Riposino", type:"Puro", category:"Stato", bp:0, target:"Self", effect:"riposino"},
+        {name:"Colpo di Padel", type:"Fitness", category:"Speciale", bp:40, target:"Single Target", effect:"padel_hits"},
+        {name:"Heets", type:"Fumo", category:"Speciale", bp:80, target:"Single Target", effect:"heets", stab:true},
+        {name:"Grattini", type:"Puro", category:"Stato", bp:0, target:"Single Target", effect:"grattini"}
+      ]},
+    { name:"Brillo", gender:"Maschio", base:{HP:70,Atk:75,Def:75,SpA:120,SpD:110,Spe:70}, types:["Ingegno"], ability:"Passato Oscuro",
+      moves:[
+        {name:"Scoordinato", type:"Fitness", category:"Fisico", bp:90, target:"Single Target", effect:"scoordinato"},
+        {name:"Fluidodinamica", type:"Ingegno", category:"Speciale", bp:90, target:"Single Target", effect:"fluidodinamica"},
+        {name:"Lavoro di Gruppo", type:"Ingegno", category:"Stato", bp:0, target:"All Allies", effect:"lavoro_gruppo"},
+        {name:"Balzata", type:"Puro", category:"Stato", bp:0, priority:3, target:"Self", effect:"protect_self"}
+      ]},
+    { name:"Murru", gender:"Maschio", base:{HP:80,Atk:95,Def:95,SpA:70,SpD:70,Spe:90}, types:["Esotico"], ability:"Gluten Free",
+      moves:[
+        {name:"Insulto Maschilista", type:"Esotico", category:"Fisico", bp:80, target:"Single Target", effect:"insulto_maschilista"},
+        {name:"Scoordinato", type:"Fitness", category:"Fisico", bp:90, target:"Single Target", effect:"scoordinato"},
+        {name:"Scambio Geografico", type:"Ingegno", category:"Stato", bp:0, priority:2, target:"All Allies", effect:"scambio_geografico"},
+        {name:"Puttana!", type:"Esotico", category:"Stato", bp:0, target:"Single Target", effect:"puttana"}
+      ]}
+];
+
+const TYPE_CHART = {
+    "Puro":     { weak:["Esotico","Fumo","Alcol"], resist:["Lercio","Dittatore"] },
+    "Ingegno":  { weak:["Chill","Alcol"], resist:["Ingegno","Fitness","Terrone"] },
+    "Alcol":    { weak:["Puro","Cibo","Dittatore"], resist:["Alcol","Ingegno","Lercio"] },
+    "Fumo":     { weak:["Fitness","Ingegno","Terrone"], resist:["Chill","Esotico","Alcol"] },
+    "Chill":    { weak:["Esotico","Fitness","Terrone"], resist:["Fumo"], immune:["Dittatore"] },
+    "Lercio":   { weak:["Esotico","Puro","Alcol"], resist:["Fitness"], immune:["Cibo"] },
+    "Cibo":     { weak:["Lercio","Fumo"], resist:["Esotico","Terrone","Alcol"] },
+    "Fitness":  { weak:["Cibo","Fumo","Chill"], resist:["Ingegno","Fitness","Puro"] },
+    "Terrone":  { weak:["Ingegno","Fitness","Dittatore"], resist:["Lercio","Cibo","Fumo"] },
+    "Dittatore":{ weak:["Puro","Lercio","Ingegno"], resist:["Terrone","Esotico"] },
+    "Esotico":  { weak:["Terrone","Lercio"], resist:["Puro"], immune:["Fumo"] }
+};
+
+const STAGE_MODS = {
+    '-6':0.25,'-5':0.286,'-4':0.33,'-3':0.4,'-2':0.5,'-1':0.75,
+    '0':1.0,'1':1.5,'2':2.0,'3':2.5,'4':3.0,'5':3.5,'6':4.0
+};
+
+const EXCLUSIVE_STATUSES = ['Burn','Sleep','Frozen','Iperavvelenato'];
+
+/* =========================================================================
+   STATO GLOBALE
+   ========================================================================= */
+let gameState = {
+    phase:'selection',
+    currentPlayerSelecting:1,
+    p1TeamTemplates:[], p2TeamTemplates:[],
+    p1Team:[], p2Team:[],
+    p1Active:[null,null], p2Active:[null,null],
+    field:{ terreno:null, terrenoTurns:0, clima:null, climaTurns:0 },
+    p1Side:{ dmgReductionPct:0, dmgReductionTurns:0 },
+    p2Side:{ dmgReductionPct:0, dmgReductionTurns:0 },
+    roundNumber:0
+};
+
+/* =========================================================================
+   SELEZIONE SQUADRA
+   ========================================================================= */
+function initRosterSelection() {
+    const grid = document.getElementById("roster-grid");
+    grid.innerHTML = "";
+    RAW_POKEMON_DATA.forEach((poke, idx) => {
+        let card = document.createElement("div");
+        card.className = "poke-card";
+        card.id = `poke-card-${idx}`;
+        card.onclick = () => toggleSelectPokemon(idx);
+        card.innerHTML = `
+            <h4>${poke.name} (${poke.gender})</h4>
+            <p><b>Tipi:</b> ${poke.types.join(", ")}</p>
+            <p><b>Abilità:</b> ${poke.ability}</p>
+            <p><b>Base:</b> HP:${poke.base.HP} Atk:${poke.base.Atk} Def:${poke.base.Def} SpA:${poke.base.SpA} SpD:${poke.base.SpD} Spe:${poke.base.Spe}</p>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+let selectedIndices = [];
+function toggleSelectPokemon(idx) {
+    let card = document.getElementById(`poke-card-${idx}`);
+    if (selectedIndices.includes(idx)) {
+        selectedIndices = selectedIndices.filter(i => i !== idx);
+        card.classList.remove("selected");
+    } else if (selectedIndices.length < 4) {
+        selectedIndices.push(idx);
+        card.classList.add("selected");
+    }
+    document.getElementById("confirm-selection").disabled = selectedIndices.length !== 4;
+}
+
+function confirmPlayerSelection() {
+    if (gameState.currentPlayerSelecting === 1) {
+        gameState.p1TeamTemplates = [...selectedIndices];
+        selectedIndices = [];
+        document.querySelectorAll(".poke-card").forEach(c => c.classList.remove("selected"));
+        gameState.currentPlayerSelecting = 2;
+        document.getElementById("selector-title").innerText = "Turno: Giocatore 2 (Selezionati: 0/4)";
+        document.getElementById("confirm-selection").innerText = "Avvia Battaglia";
+        document.getElementById("confirm-selection").disabled = true;
+        initRosterSelection();
+    } else {
+        gameState.p2TeamTemplates = [...selectedIndices];
+        startBattle();
+    }
+}
+
+/* =========================================================================
+   CLASSE POKEMON DA BATTAGLIA
+   ========================================================================= */
+class BattlePokemon {
+    constructor(template, trainerId) {
+        this.name = template.name;
+        this.originalGender = template.gender;
+        this.gender = template.gender;
+        this.originalTypes = [...template.types];
+        this.types = [...template.types];
+        this.ability = template.ability;
+        this.moves = JSON.parse(JSON.stringify(template.moves));
+        this.trainerId = trainerId;
+
+        this.maxHp = Math.floor((2 * template.base.HP + 31) * 50 / 100) + 60;
+        this.hp = this.maxHp;
+        this.baseStats = {
+            Atk: Math.floor((2 * template.base.Atk + 31) * 50 / 100) + 5,
+            Def: Math.floor((2 * template.base.Def + 31) * 50 / 100) + 5,
+            SpA: Math.floor((2 * template.base.SpA + 31) * 50 / 100) + 5,
+            SpD: Math.floor((2 * template.base.SpD + 31) * 50 / 100) + 5,
+            Spe: Math.floor((2 * template.base.Spe + 31) * 50 / 100) + 5
+        };
+        this.stages = { Atk:0, Def:0, SpA:0, SpD:0, Spe:0 };
+        this.status = { type:null, counter:0, sleepTurns:0 };
+        this.isFainted = false;
+        this.activeSlot = null; // 0/1 while in campo
+
+        this.v = { // volatile flags, resettate quando esce dal campo
+            confused:false,
+            fungo:false,
+            da:false,
+            trapped:false,
+            forcedMove:null,     // {name, turnsLeft}
+            moveLockout:{},      // {moveName: turnsLeft}
+            mustAttackTarget:null, // riferimento pokemon da colpire per forza (Scopiamo)
+            redirectTurns:0,     // Svenimento: gli avversari devono colpire lui
+            protectStreak:0,
+            damageReduction:0,   // % riduzione danno temporanea propria (es. Ringraziando Iddio gestito lato squadra, qui per casi individuali)
+            hasActedOnce:false,
+            lastMoveUsed:null,
+            frozenAtkNoLeave:null // Pescare/Croste: chi lo blocca in campo
+        };
+    }
+
+    resetOnSwitchOut() {
+        this.stages = { Atk:0, Def:0, SpA:0, SpD:0, Spe:0 };
+        this.v.confused = false;
+        this.v.trapped = false;
+        this.v.forcedMove = null;
+        this.v.moveLockout = {};
+        this.v.mustAttackTarget = null;
+        this.v.redirectTurns = 0;
+        this.v.protectStreak = 0;
+        this.v.frozenAtkNoLeave = null;
+        this.status.counter = 0; // i contatori si azzerano, ma lo stato resta (glossario)
+        this.types = [...this.originalTypes];
+        this.gender = this.originalGender;
+        this.activeSlot = null;
+    }
+}
+
+/* =========================================================================
+   HELPERS DI CAMPO
+   ========================================================================= */
+function allActive() { return [...gameState.p1Active, ...gameState.p2Active].filter(p => p && !p.isFainted); }
+function sideActive(trainerId) { return (trainerId===1?gameState.p1Active:gameState.p2Active).filter(p=>p && !p.isFainted); }
+function enemyActive(trainerId) { return sideActive(trainerId===1?2:1); }
+function allyOf(poke) { return sideActive(poke.trainerId).find(p=>p!==poke); }
+function fieldHasAbility(abilityName) { return allActive().some(p=>p.ability===abilityName); }
+
+function setTerreno(type, poke) {
+    gameState.field.terreno = type;
+    gameState.field.terrenoTurns = 5;
+    printLog(`🌿 ${poke.name} imposta il Terreno ${type}!`);
+}
+function setClima(type, poke) {
+    gameState.field.clima = type;
+    gameState.field.climaTurns = 5;
+    printLog(`☁️ ${poke.name} imposta il Clima ${type}!`);
+}
+
+/* =========================================================================
+   STATISTICHE EFFETTIVE (con stage + abilità passive)
+   ========================================================================= */
+function abilityStageDelta(poke, stat) {
+    let d = 0;
+    const ally = allyOf(poke);
+    if (poke.ability === "Grounding" && gameState.field.terreno) { if (stat==='Spe') d += 1; }
+    if (poke.ability === "camerata" && ally) {
+        if (ally.gender === 'Maschio') { if (stat==='Atk'||stat==='Spe') d += 1; }
+        if (ally.types.includes('Terrone') || ally.types.includes('Esotico')) { if (stat==='Atk') d -= 1; }
+    }
+    if (poke.ability === "baffo" && ally && ally.gender === 'Maschio') { if (stat==='Def'||stat==='Atk') d += 1; }
+    if (poke.ability === "Tolleranza" ||  fieldHasAbility('Tolleranza')) {
+        if ((poke.types.includes('Esotico') || poke.types.includes('Terrone')) && (stat==='Def'||stat==='SpD')) d += 2;
+    }
+    if (poke.ability === "Passato Oscuro" && (gameState.field.clima==='Fumo' || gameState.field.terreno==='Alcol')) {
+        if (stat==='Spe') d += 1;
+    }
+    if (poke.ability === "Poppe A Casa!" ) {
+        const poppe = allActive().find(p=>p.name==='Poppe' && p.trainerId===poke.trainerId);
+        if (poppe && poke.name==='Poppe') { /* handled as flat mod below, non-stage */ }
+    }
+    return d;
+}
+
+function flatStatMultiplier(poke, stat) {
+    let mult = 1;
+    if (poke.ability === "Grounding" && gameState.field.clima === "Fumo") {
+        if (stat==='Def' || stat==='Spe') mult *= 0.9;
+    }
+    return mult;
+}
+
+function getStat(poke, stat) {
+    if (stat === 'HP') return poke.hp;
+    // Ottimizzazione (Giana): ricalcolo incrociato
+    if (poke.ability === 'Ottimizzazione') {
+        const eff = (s) => Math.floor(poke.baseStats[s] * STAGE_MODS[clampStage(poke.stages[s] + abilityStageDelta(poke,s))]);
+        if (stat === 'SpA' && poke._computingSpA !== true) {
+            return eff('SpA') + Math.floor(0.5*eff('Atk')) + Math.floor(0.25*eff('Def')) + Math.floor(0.25*eff('SpD'));
+        }
+    }
+    const stage = clampStage(poke.stages[stat] + abilityStageDelta(poke, stat));
+    let val = Math.floor(poke.baseStats[stat] * STAGE_MODS[stage]);
+    val = Math.floor(val * flatStatMultiplier(poke, stat));
+    return Math.max(1, val);
+}
+
+function clampStage(v){ return Math.max(-6, Math.min(6, v)); }
+
+/* =========================================================================
+   MODIFICHE DI STAGE (rispetta Innocenza / Doppiatore)
+   ========================================================================= */
+function changeStage(target, deltas, opts={}) {
+    if (fieldHasAbility('Innocenza') && !opts.forceThroughInnocenza) {
+        printLog(`🚫 Innocenza impedisce cambi di statistiche in campo!`);
+        return;
+    }
+    let doubled = false;
+    if (allActive().some(p => p.ability==='Doppiatore' && p.trainerId===target.trainerId) && Math.random() < 0.6) {
+        doubled = true;
+    }
+    Object.keys(deltas).forEach(stat => {
+        let d = deltas[stat] * (doubled ? 2 : 1);
+        target.stages[stat] = clampStage(target.stages[stat] + d);
+    });
+    printLog(`📊 ${target.name}: ${Object.entries(deltas).map(([k,v])=>`${k} ${v>0?'+':''}${v}${doubled?' (raddoppiato!)':''}`).join(', ')}`);
+}
+
+/* =========================================================================
+   STATO (Status conditions)
+   ========================================================================= */
+function tryInflictStatus(target, statusType, source) {
+    if (target.isFainted) return false;
+    if (target.ability === 'fascino di pie' && (statusType==='Iperavvelenato')) return false;
+    if (EXCLUSIVE_STATUSES.includes(statusType)) {
+        if (target.status.type) { printLog(`${target.name} è già affetto da ${target.status.type}, ${statusType} non ha effetto.`); return false; }
+        target.status = { type: statusType, counter:0, sleepTurns:0 };
+        printLog(`☠️ ${target.name} ora ha lo stato ${statusType}!`);
+        return true;
+    }
+    if (statusType === 'Fungo') { target.v.fungo = true; printLog(`🍄 ${target.name} ha lo stato Fungo!`); return true; }
+    if (statusType === 'Confuso') {
+        target.v.confused = true;
+        printLog(`💫 ${target.name} è confuso!`);
+        return true;
+    }
+    if (statusType === 'DA') { target.v.da = true; printLog(`🍽️ ${target.name} ha lo stato DA!`); return true; }
+    return false;
+}
+
+function healPoke(target, amountPct) {
+    if (target.v.da) { printLog(`${target.name} non può curarsi: stato DA attivo!`); return; }
+    const heal = Math.floor(target.maxHp * amountPct);
+    target.hp = Math.min(target.maxHp, target.hp + heal);
+    printLog(`💚 ${target.name} recupera ${heal} HP!`);
+}
+
+/* =========================================================================
+   TIPI / DANNO
+   ========================================================================= */
+function typeMultiplier(moveType, defenderTypes) {
+    let mult = 1;
+    defenderTypes.forEach(dt => {
+        const entry = TYPE_CHART[dt];
+        if (!entry) return;
+        if (entry.immune && entry.immune.includes(moveType)) mult *= 0;
+        else if (entry.weak && entry.weak.includes(moveType)) mult *= 2;
+        else if (entry.resist && entry.resist.includes(moveType)) mult *= 0.5;
+    });
+    return mult;
+}
+
+function checkAccuracy(attacker, defender, move) {
+    if (move.effect === 'bang') return true; // Bang! non evitabile
+    let acc = (move.accuracy != null) ? move.accuracy : 100;
+    if (fieldHasAbility('fascino di pie') && attacker.gender === 'Femmina') acc -= 20;
+    if (gameState.field.terreno === 'Alcol' && move.type !== 'Alcol' && !attacker.types.includes('Alcol')) acc -= 10;
+    acc = Math.max(0, Math.min(100, acc));
+    return Math.random() * 100 < acc;
+}
+
+function computeDamage(attacker, defender, move, {isCrit=false, numTargets=1, forceStab=false, bruttoColpo=false}={}) {
+    if (move.bp === 0) return 0;
+    const isSpec = move.category === 'Speciale';
+    let aStat = getStat(attacker, isSpec ? 'SpA' : 'Atk');
+    let dStatKey = isSpec ? 'SpD' : 'Def';
+    let dStage = defender.stages[dStatKey] + abilityStageDelta(defender, dStatKey);
+    if (isCrit || bruttoColpo) dStage = Math.min(dStage, 0); // ignora boost difensivi positivi
+    let dStat = Math.max(1, Math.floor(defender.baseStats[dStatKey] * STAGE_MODS[clampStage(dStage)] * flatStatMultiplier(defender,dStatKey)));
+
+    let base = Math.floor((22 * move.bp * aStat / dStat) / 50) + 2;
+    let stab = (attacker.types.includes(move.type) || forceStab || move.stab || attacker.ability === 'goblin') ? 1.5 : 1.0;
+    if (move.effect === 'fluidodinamica' && defender.types.includes('Alcol')) base *= 2;
+    if (move.sound && attacker.ability === 'gran voce') base = Math.floor(base * 1.5);
+
+    let tMod = typeMultiplier(move.type, defender.types);
+    if (tMod === 0) return { dmg:0, tMod };
+
+    let multiTargetMod = numTargets > 1 ? 0.75 : 1;
+    let critMod = (isCrit || bruttoColpo) ? 1.5 : 1;
+
+    let dmg = Math.floor(base * stab * tMod * multiTargetMod * critMod);
+
+    // Riduzioni danno da abilità/effetti
+    if (fieldHasAbility('fascino di pie') && defender.gender === 'Femmina') dmg = Math.floor(dmg * 0.8);
+    if (defender.ability === 'Gluten Free' && (move.type === 'Alcol' || move.type === 'Cibo')) dmg = Math.floor(dmg * 0.75);
+    if (defender.ability === 'Divano e Canna' && move.type === 'Terrone') dmg = Math.floor(dmg * 0.75);
+    if (defender.ability === 'Passato Oscuro' && (gameState.field.clima === 'Fumo' || gameState.field.terreno === 'Alcol')) dmg = Math.floor(dmg * 0.85);
+    if (gameState.field.clima === 'Fumo' && defender.types.includes('Fumo')) dmg = Math.floor(dmg * 0.9);
+    const lallaAlly = sideActive(defender.trainerId).find(p => p.name === 'Lalla');
+    if (lallaAlly && lallaAlly !== defender) dmg = Math.floor(dmg * 0.85);
+    const side = defender.trainerId === 1 ? gameState.p1Side : gameState.p2Side;
+    if (side.dmgReductionTurns > 0) dmg = Math.floor(dmg * (1 - side.dmgReductionPct));
+
+    return { dmg: Math.max(1, dmg), tMod };
+}
+
+/* =========================================================================
+   BATTAGLIA: AVVIO
+   ========================================================================= */
+function startBattle() {
+    document.getElementById("select-screen").classList.add("hidden");
+    document.getElementById("battle-screen").classList.remove("hidden");
+
+    gameState.p1Team = gameState.p1TeamTemplates.map(idx => new BattlePokemon(RAW_POKEMON_DATA[idx], 1));
+    gameState.p2Team = gameState.p2TeamTemplates.map(idx => new BattlePokemon(RAW_POKEMON_DATA[idx], 2));
+
+    gameState.p1Active = [gameState.p1Team[0], gameState.p1Team[1]];
+    gameState.p2Active = [gameState.p2Team[0], gameState.p2Team[1]];
+    gameState.p1Active.forEach((p,i)=>p.activeSlot=i);
+    gameState.p2Active.forEach((p,i)=>p.activeSlot=i);
+
+    printLog("⚔️ La battaglia VGC ha inizio tra Giocatore 1 e Giocatore 2!");
+    allActive().forEach(p => triggerEntryAbility(p));
+    updateUI();
+    promptNextMove();
+}
+
+function triggerEntryAbility(poke) {
+    switch (poke.ability) {
+        case "Consegna delle Verifiche": setClima("Fumo", poke); break;
+        case "Giro di Shot":
+            setTerreno("Alcol", poke);
+            allActive().forEach(p => tryInflictStatus(p, 'Confuso'));
+            break;
+        case "Soppressata": setTerreno("Calabro", poke); break;
+        case "Divano e Canna": setTerreno("Chill", poke); setClima("Fumo", poke); break;
+        case "Poliglotta":
+            printLog(`🗣️ ${poke.name} rivela le mosse avversarie:`);
+            enemyActive(poke.trainerId).forEach(e => printLog(`&nbsp;&nbsp;${e.name}: ${e.moves.map(m=>m.name).join(', ')}`));
+            break;
+        case "Infermiera":
+            sideActive(poke.trainerId).forEach(a => { a.status = {type:null,counter:0,sleepTurns:0}; a.v.fungo=false; a.v.da=false; });
+            printLog(`💊 ${poke.name} cura tutti gli status della squadra!`);
+            break;
+        case "discussione": {
+            const opp = enemyActive(poke.trainerId)[poke.activeSlot] || enemyActive(poke.trainerId)[0];
+            if (opp) { tryInflictStatus(opp, 'Confuso'); changeStage(opp, {Def:-1, SpD:-1}); }
+            break;
+        }
+        case "Richiamo di Becchio": {
+            const becchioPresent = fieldHasAbility('Poppe A Casa!');
+            changeStage(poke, {Def:1, SpD: becchioPresent ? 2 : 1}, {forceThroughInnocenza:true});
+            break;
+        }
+        case "Poppe A Casa!": {
+            const poppe = allActive().find(p => p.name === 'Poppe');
+            if (poppe) changeStage(poppe, {Atk:-1, SpA:-1, Def:1, SpD:1}, {forceThroughInnocenza:true});
+            else enemyActive(poke.trainerId).forEach(e => changeStage(e, {Def:-1}, {forceThroughInnocenza:true}));
+            break;
+        }
+    }
+}
+
+function printLog(text) {
+    let logEl = document.getElementById("log");
+    logEl.innerHTML += `<div>${text}</div>`;
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+/* =========================================================================
+   RENDER
+   ========================================================================= */
+function statusLabel(poke) {
+    let tags = [];
+    if (poke.status.type) tags.push(poke.status.type);
+    if (poke.v.confused) tags.push('Confuso');
+    if (poke.v.fungo) tags.push('Fungo');
+    if (poke.v.da) tags.push('DA');
+    return tags.map(t=>`<span class="status-tag">${t}</span>`).join('');
+}
+function stageLabel(poke) {
+    return Object.entries(poke.stages).filter(([k,v])=>v!==0)
+        .map(([k,v])=>`<span class="stage-tag">${k} ${v>0?'+':''}${v}</span>`).join('');
+}
+
+function updateUI() {
+    const f = gameState.field;
+    document.getElementById("field-status-bar").innerHTML = `
+        <span>Terreno: ${f.terreno || 'Nessuno'} ${f.terreno?`(${f.terrenoTurns})`:''}</span>
+        <span>Clima: ${f.clima || 'Nessuno'} ${f.clima?`(${f.climaTurns})`:''}</span>
+    `;
+    renderSide(1); renderSide(2);
+}
+
+function renderSide(trainerId) {
+    const active = trainerId===1 ? gameState.p1Active : gameState.p2Active;
+    for (let i=0;i<2;i++) {
+        let p = active[i];
+        let slotEl = document.getElementById(`p${trainerId}-slot-${i}`);
+        if (p && !p.isFainted) {
+            slotEl.innerHTML = `<b>${p.name}</b> (${p.gender==='Maschio'?'M':'F'}) — ${p.types.join("/")} — ${p.ability}
+                ${statusLabel(p)}<br>HP: ${p.hp}/${p.maxHp}
+                <div class="hp-bar-container"><div class="hp-bar-fill" style="width:${Math.max(0,(p.hp/p.maxHp)*100)}%"></div></div>
+                ${stageLabel(p)}`;
+        } else {
+            slotEl.innerHTML = `<b>Slot ${i+1}:</b> KO / Vuoto`;
+        }
+    }
+}
+
+/* =========================================================================
+   MODALI (target / switch / scelta mossa da bloccare)
+   ========================================================================= */
+function showModal(title, options) {
+    const root = document.getElementById("modal-root");
+    root.innerHTML = `<div class="modal-overlay"><div class="modal-box"><h3>${title}</h3><div id="modal-opts"></div></div></div>`;
+    const opts = document.getElementById("modal-opts");
+    options.forEach(o => {
+        let b = document.createElement("button");
+        b.innerText = o.label;
+        b.onclick = () => { closeModal(); o.onClick(); };
+        opts.appendChild(b);
+    });
+}
+function closeModal() { document.getElementById("modal-root").innerHTML = ""; }
+
+/* =========================================================================
+   TURNO: SELEZIONE AZIONI
+   ========================================================================= */
+let currentTrainerTurn = 1;
+let currentSlotTurn = 0;
+let roundActions = [];
+
+function livingTeam(trainerId){ return (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted); }
+
+function checkWinner() {
+    let p1Alive = livingTeam(1).length>0;
+    let p2Alive = livingTeam(2).length>0;
+    if (!p1Alive || !p2Alive) {
+        printLog(`🏆 <b>FINE PARTITA! Vince il Giocatore ${p1Alive?1:2}!</b>`);
+        document.getElementById("controls-area").innerHTML = "<h3>Partita Terminata</h3>";
+        return true;
+    }
+    return false;
+}
+
+function promptNextMove() {
+    if (checkWinner()) return;
+
+    let activePoke = currentTrainerTurn===1 ? gameState.p1Active[currentSlotTurn] : gameState.p2Active[currentSlotTurn];
+    if (!activePoke || activePoke.isFainted) { advanceActor(); return; }
+
+    // Mossa forzata a ripetere?
+    if (activePoke.v.forcedMove && activePoke.v.forcedMove.turnsLeft > 0) {
+        const mv = activePoke.moves.find(m=>m.name===activePoke.v.forcedMove.name);
+        if (mv) {
+            printLog(`🔁 ${activePoke.name} è costretto a ripetere ${mv.name}!`);
+            queueAction(activePoke, mv, defaultTargetFor(activePoke, mv));
+            activePoke.v.forcedMove.turnsLeft--;
+            advanceActor();
+            return;
+        }
+    }
+
+    document.getElementById("current-actor-label").innerText = `Giocatore ${currentTrainerTurn} - Tocca a: ${activePoke.name} (Slot ${currentSlotTurn+1})`;
+    let grid = document.getElementById("moves-grid");
+    grid.innerHTML = "";
+    activePoke.moves.forEach((move, mIdx) => {
+        let btn = document.createElement("button");
+        const locked = activePoke.v.moveLockout[move.name] > 0;
+        btn.innerText = `${move.name} (${move.type})${locked?' 🔒':''}`;
+        btn.disabled = !!locked;
+        btn.onclick = () => onMoveChosen(activePoke, move);
+        grid.appendChild(btn);
+    });
+}
+
+function defaultTargetFor(attacker, move) {
+    if (move.target === 'Self' || move.target === 'All Allies' || move.target === 'All Opponents' || move.target === 'All Pokemon') return null;
+    const enemies = enemyActive(attacker.trainerId);
+    if (attacker.v.mustAttackTarget && !attacker.v.mustAttackTarget.isFainted) return attacker.v.mustAttackTarget;
+    const redirecting = enemies.find(e => e.v.redirectTurns > 0);
+    if (redirecting) return redirecting;
+    return enemies[0] || null;
+}
+
+function onMoveChosen(attacker, move) {
+    if (move.target === 'Single Target') {
+        const enemies = enemyActive(attacker.trainerId);
+        const allies = sideActive(attacker.trainerId).filter(p=>p!==attacker);
+        // mosse che colpiscono alleati o sé (Whisky, Rutto no, Grattini can target ally/self, Altini Marito any, Punto Chill any)
+        const candidates = ['Grattini','Altini Marito','Punto Chill'].includes(move.name)
+            ? [...allies, ...enemies, attacker]
+            : (attacker.v.mustAttackTarget ? [attacker.v.mustAttackTarget] : enemies);
+        if (candidates.length === 1) { queueAction(attacker, move, candidates[0]); advanceActor(); return; }
+        const redirecting = candidates.find(e=>e.v.redirectTurns>0 && enemies.includes(e));
+        if (redirecting) { queueAction(attacker, move, redirecting); advanceActor(); return; }
+        showModal(`${attacker.name}: scegli bersaglio per ${move.name}`, candidates.map(c => ({
+            label: `${c.name} (${c.trainerId===attacker.trainerId?'alleato':'avversario'})`,
+            onClick: () => { queueAction(attacker, move, c); advanceActor(); }
+        })));
+        return;
+    }
+    queueAction(attacker, move, defaultTargetFor(attacker, move));
+    advanceActor();
+}
+
+function queueAction(actor, move, target) {
+    roundActions.push({ trainer: actor.trainerId, slot: actor.activeSlot, actor, move, target });
+}
+
+function skipTurn() {
+    let activePoke = currentTrainerTurn===1 ? gameState.p1Active[currentSlotTurn] : gameState.p2Active[currentSlotTurn];
+    if (!activePoke) { advanceActor(); return; }
+    queueAction(activePoke, { name:"Attesa", type:"Puro", category:"Stato", bp:0, target:"Self" }, activePoke);
+    advanceActor();
+}
+
+function advanceActor() {
+    currentSlotTurn++;
+    if (currentSlotTurn > 1) {
+        currentSlotTurn = 0;
+        if (currentTrainerTurn === 1) { currentTrainerTurn = 2; promptNextMove(); }
+        else { currentTrainerTurn = 1; executeTurnQueue(); }
+    } else {
+        promptNextMove();
+    }
+}
+
+/* =========================================================================
+   CAMBIO POKEMON
+   ========================================================================= */
+function openSwitchMenu() {
+    const trainerId = currentTrainerTurn;
+    const bench = (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
+    const activePoke = trainerId===1?gameState.p1Active[currentSlotTurn]:gameState.p2Active[currentSlotTurn];
+    if (activePoke && activePoke.v.trapped) { printLog(`🚫 ${activePoke.name} non può lasciare il campo!`); return; }
+    if (bench.length === 0) { printLog("Nessun Pokémon disponibile per il cambio."); return; }
+    showModal(`Cambia con:`, bench.map(b => ({
+        label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
+        onClick: () => performSwitch(trainerId, currentSlotTurn, b)
+    })));
+}
+
+function performSwitch(trainerId, slot, newPoke) {
+    const active = trainerId===1?gameState.p1Active:gameState.p2Active;
+    const old = active[slot];
+    if (old) old.resetOnSwitchOut();
+    active[slot] = newPoke;
+    newPoke.activeSlot = slot;
+    printLog(`🔄 Giocatore ${trainerId} manda in campo ${newPoke.name}!`);
+    triggerEntryAbility(newPoke);
+    updateUI();
+    if (gameState.phase === 'forced-switch') {
+        gameState.phase = 'battle';
+        resumeAfterForcedSwitch();
+    } else {
+        advanceActor();
+    }
+}
+
+/* =========================================================================
+   ESECUZIONE TURNO
+   ========================================================================= */
+function movePriority(action) {
+    let p = action.move.priority || 0;
+    if (action.move.effect === 'cannata' && action.target && action.target.ability === 'Scopiamo') p = 4;
+    return p;
+}
+
+function executeTurnQueue() {
+    printLog("<br>--- <b>INIZIO TURNO</b> ---");
+    gameState.roundNumber++;
+
+    roundActions.sort((a,b) => {
+        let pa = movePriority(a), pb = movePriority(b);
+        if (pa !== pb) return pb - pa;
+        return getStat(b.actor,'Spe') - getStat(a.actor,'Spe');
+    });
+
+    // Fermii: se è la prima mossa in ordine di priorità di chi la usa ed è la prima volta che agisce, fa flinchare chi deve ancora muoversi
+    let flinched = new Set();
+
+    for (const action of roundActions) {
+        if (action.actor.isFainted) continue;
+        if (flinched.has(action.actor)) { printLog(`😵 ${action.actor.name} tentenna e non può muoversi!`); continue; }
+        executeSingleAction(action.actor, action.target, action.move, flinched);
+        if (checkWinner()) return;
+    }
+
+    // fine turno: status ticking, campo
+    endOfRoundEffects();
+    roundActions = [];
+    currentTrainerTurn = 1;
+    currentSlotTurn = 0;
+    updateUI();
+    if (!checkWinner()) promptNextMove();
+}
+
+function isProtected(defender, attacker, move) {
+    if (defender.v.protectedThisTurn && move.category !== 'Stato') return true;
+    if (defender.v.protectedFromMalesThisTurn && attacker.gender === 'Maschio') return true;
+    return false;
+}
+
+function executeSingleAction(attacker, defender, move, flinchedSet) {
+    if (attacker.status.type === 'Sleep') {
+        attacker.status.sleepTurns++;
+        if (attacker.status.sleepTurns >= 3 || (attacker.status.sleepTurns===2 && Math.random()<0.5)) {
+            attacker.status = {type:null,counter:0,sleepTurns:0};
+            printLog(`😴 ${attacker.name} si sveglia!`);
+        } else { printLog(`😴 ${attacker.name} dorme ancora.`); return; }
+    }
+    if (attacker.status.type === 'Frozen') {
+        if (Math.random() < 0.5) { attacker.status = {type:null,counter:0,sleepTurns:0}; printLog(`🧊 ${attacker.name} si libera dal gelo!`); }
+        else { printLog(`🧊 ${attacker.name} è congelato e non può muoversi!`); return; }
+    }
+    if (attacker.v.confused) {
+        const escapeChance = gameState.field.terreno === 'Alcol' ? 0.125 : 0.25;
+        if (Math.random() < escapeChance) { attacker.v.confused = false; printLog(`💫 ${attacker.name} non è più confuso.`); }
+        else if (Math.random() < 0.5) {
+            const selfDmg = Math.max(1, Math.floor(attacker.maxHp * 0.08));
+            attacker.hp = Math.max(0, attacker.hp - selfDmg);
+            printLog(`💫 ${attacker.name} è confuso e si colpisce da solo (${selfDmg} danni)!`);
+            if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${attacker.name} è andato KO!`); handleFaint(attacker); }
+            return;
+        }
+    }
+
+    attacker.v.protectedThisTurn = false;
+    attacker.v.protectedFromMalesThisTurn = false;
+    attacker.v.lastMoveUsed = move.name;
+    attacker.v.hasActedOnce = true;
+
+    if (move.effect === 'fermii_flinch') {
+        if (attacker.v.hadFirstMoveUsed) { printLog(`${attacker.name} non può usare Fermii se non come prima mossa in assoluto!`); }
+        else {
+            attacker.v.hadFirstMoveUsed = true;
+            enemyActive(attacker.trainerId).forEach(e => flinchedSet.add(e));
+            printLog(`💨 ${attacker.name} usa Fermii! Gli avversari che devono ancora muoversi tentennano!`);
+        }
+        return;
+    }
+    attacker.v.hadFirstMoveUsed = true;
+
+    if (defender && defender.isFainted) {
+        const ally = sideActive(defender.trainerId).find(p=>p!==defender);
+        if (!ally) { printLog(`${move.name} fallisce: nessun bersaglio disponibile.`); return; }
+        defender = ally;
+    }
+
+    printLog(`▶️ <b>${attacker.name}</b> usa <b>${move.name}</b>!`);
+
+    if (defender && move.target === 'Single Target' && isProtected(defender, attacker, move)) {
+        printLog(`🛡️ ${defender.name} si protegge dall'attacco!`);
+        return;
+    }
+
+    if (move.target === 'Single Target' && move.category !== 'Stato') {
+        if (!checkAccuracy(attacker, defender, move)) { printLog(`❌ ${move.name} non va a segno!`); return; }
+    } else if (move.accuracy != null) {
+        if (!checkAccuracy(attacker, defender || attacker, move)) {
+            printLog(`❌ ${move.name} non va a segno!`);
+            runMoveEffect(move, attacker, defender, { failed:true });
+            return;
+        }
+    }
+
+    if (move.category === 'Stato' && move.bp === 0) {
+        runMoveEffect(move, attacker, defender, {});
+        return;
+    }
+
+    // determina bersagli multipli
+    let targets = [];
+    if (move.target === 'Single Target') targets = [defender].filter(Boolean);
+    else if (move.target === 'All Opponents') targets = enemyActive(attacker.trainerId);
+    else if (move.target === 'All Pokemon') targets = allActive();
+    else if (move.target === 'All Allies') targets = sideActive(attacker.trainerId);
+    else if (move.target === 'Self') targets = [attacker];
+
+    const isCrit = move.effect === 'crit_always';
+    let totalDamage = 0;
+    targets.forEach(t => {
+        if (t.isFainted) return;
+        if (t !== attacker && isProtected(t, attacker, move)) { printLog(`🛡️ ${t.name} si protegge!`); return; }
+        const { dmg, tMod } = computeDamage(attacker, t, move, { isCrit, numTargets: targets.length });
+        if (tMod === 0) { printLog(`🚫 Non ha effetto su ${t.name}.`); return; }
+        t.hp = Math.max(0, t.hp - dmg);
+        totalDamage += dmg;
+        printLog(`💥 ${t.name} subisce ${dmg} danni!` + (tMod>1?' 🔺 Superefficace!':tMod<1?' 🔻 Poco efficace...':''));
+        if (t.v.fungo === false && move.category === 'Fisico') { tryInflictStatus(t, 'Fungo'); }
+        if (t.hp === 0) { t.isFainted = true; printLog(`💀 <b>${t.name} è andato KO!</b>`); }
+    });
+
+    if (move.effect === 'recoil_33' && totalDamage > 0) {
+        const recoil = Math.floor(totalDamage * 0.33);
+        attacker.hp = Math.max(0, attacker.hp - recoil);
+        printLog(`💢 ${attacker.name} subisce ${recoil} danni di contraccolpo!`);
+        if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${attacker.name} è andato KO per il contraccolpo!`); }
+    }
+
+    runMoveEffect(move, attacker, defender, { targets, totalDamage });
+
+    targets.forEach(t => { if (t.isFainted) handleFaint(t); });
+    if (attacker.isFainted) handleFaint(attacker);
+}
+
+function handleFaint(poke) {
+    poke.resetOnSwitchOut();
+    poke.activeSlot = null;
+    const active = poke.trainerId===1?gameState.p1Active:gameState.p2Active;
+    const idx = active.indexOf(poke);
+    if (idx !== -1) active[idx] = null;
+}
+
+/* =========================================================================
+   EFFETTI DELLE MOSSE
+   ========================================================================= */
+function runMoveEffect(move, attacker, defender, ctx) {
+    const eff = move.effect;
+    if (!eff) return;
+    const enemies = enemyActive(attacker.trainerId);
+    const allies = sideActive(attacker.trainerId);
+
+    switch (eff) {
+        case 'hyper_poison':
+            enemyActive(attacker.trainerId).forEach(e => tryInflictStatus(e, 'Iperavvelenato'));
+            break;
+        case 'hyper_poison_single':
+            if (defender) tryInflictStatus(defender, 'Iperavvelenato');
+            break;
+        case 'protect_and_terrain_chill':
+            handleProtect(attacker, 'all');
+            setTerreno('Chill', attacker);
+            break;
+        case 'protect_self':
+            handleProtect(attacker, 'all');
+            break;
+        case 'stat_down_atk_spa':
+            if (defender) changeStage(defender, {Atk:-1, SpA:-1});
+            break;
+        case 'fungo_status':
+            if (defender) tryInflictStatus(defender, 'Fungo');
+            break;
+        case 'anguria_drum':
+            attacker.hp = Math.max(1, Math.floor(attacker.hp/2));
+            attacker.stages.Atk = 6;
+            printLog(`🍉 ${attacker.name} dimezza i propri HP e massimizza l'Attacco!`);
+            break;
+        case 'birra_heal':
+            healPoke(attacker, 1.0);
+            attacker.v.accuracyPenalty = (attacker.v.accuracyPenalty||0) + 50;
+            printLog(`🍺 ${attacker.name} recupera tutta la vita ma perde precisione!`);
+            break;
+        case 'medusa_effect':
+            allActive().forEach(p => tryInflictStatus(p, 'Confuso'));
+            if (defender) changeStage(defender, {Def:-1, SpD:-1});
+            break;
+        case 'recoil_33': break; // gestito sopra
+        case 'drift_effect':
+            if (ctx.failed) { attacker.hp = Math.max(0, attacker.hp - Math.floor(attacker.maxHp/3)); printLog(`💨 Drift fallisce, ${attacker.name} perde 1/3 HP!`); if(attacker.hp===0){attacker.isFainted=true; handleFaint(attacker);} }
+            else { changeStage(attacker, {Spe:6}); setClima('Fumo', attacker); }
+            break;
+        case 'rutto_effect':
+            if (defender) changeStage(defender, {Atk:-1});
+            break;
+        case 'punto_chill':
+            if (!defender || defender === attacker) changeStage(attacker, {Def:1, SpD:1, Spe:-1});
+            else if (defender.trainerId === attacker.trainerId) changeStage(defender, {Atk:1, SpA:1, Def:1, SpD:1});
+            else changeStage(defender, {Atk:-1, SpA:-1, Def:-1, SpD:-1});
+            break;
+        case 'da_status':
+            enemyActive(attacker.trainerId).forEach(e => { e.v.da = true; });
+            printLog(`🍽️ Gli avversari colpiti ricevono stato DA!`);
+            break;
+        case 'pausa_siga': {
+            if (attacker.v.moveLockout['Pausa Siga'] > 0) { printLog(`${attacker.name} non può ancora ripetere Pausa Siga!`); break; }
+            const bench = (attacker.trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p !== attacker && p.activeSlot===null);
+            if (bench.length === 0) { printLog(`Pausa Siga fallisce: nessun alleato disponibile!`); break; }
+            setClima('Fumo', attacker);
+            attacker.v.moveLockout['Pausa Siga'] = 2;
+            const slot = attacker.activeSlot;
+            const returning = attacker;
+            performSwitch(attacker.trainerId, slot, bench[0]);
+            printLog(`🚬 ${attacker.name} esce per una pausa sigaretta, rientrerà a inizio prossimo turno.`);
+            setTimeout(()=>{}, 0);
+            (attacker.trainerId===1?gameState:gameState).pendingReturn = (gameState.pendingReturn||[]);
+            gameState.pendingReturn.push({ poke: returning, slot, trainerId: attacker.trainerId });
+            break;
+        }
+        case 'argomentazione':
+            changeStage(attacker, {Def:1, SpD:1});
+            break;
+        case 'posing':
+            changeStage(attacker, {Atk:2, Def:2, Spe:-1});
+            break;
+        case 'burn_status':
+            (move.target==='All Pokemon'?allActive():enemyActive(attacker.trainerId)).forEach(t => tryInflictStatus(t, 'Burn'));
+            break;
+        case 'burn_status_single':
+            if (defender) tryInflictStatus(defender, 'Burn');
+            break;
+        case 'squalo_limone':
+            changeStage(attacker, {Spe:1});
+            break;
+        case 'cucciolone':
+            if (defender) changeStage(defender, {Def:-1, SpD:-1, Spe:-1});
+            break;
+        case 'gold_rain':
+            changeStage(attacker, {SpA:-1});
+            break;
+        case 'shadow_boxing':
+            changeStage(attacker, {Atk:1, Def:1});
+            break;
+        case 'pugni_merda':
+            changeStage(attacker, {Def:-1, SpD:-1});
+            break;
+        case 'bomba_acqua':
+            changeStage(attacker, {Atk:-1, SpA:-1, Def:-1, SpD:-1, Spe:-1});
+            break;
+        case 'crit_always': break; // gestito nel calcolo danno
+        case 'viva_il_duce': break; // BP dinamico gestito in getEffectiveBp (vedi sotto)
+        case 'squarta_neri': break; // moltiplicatore gestito in computeDamage extra (vedi sotto)
+        case 'accudire':
+            allies.forEach(a => { healPoke(a, 0.2); a.status = {type:null,counter:0,sleepTurns:0}; a.v.fungo=false; a.v.da=false; a.v.confused=false; });
+            break;
+        case 'baffetto':
+            attacker.gender = 'Maschio';
+            enemyActive(attacker.trainerId).filter(e=>e.gender==='Maschio').forEach(e => changeStage(e, {Atk:-1}));
+            break;
+        case 'reginetta':
+            allies.filter(a=>a.gender==='Femmina').forEach(a => changeStage(a, {Atk:1, SpA:1, SpD:1, Def:1}));
+            break;
+        case 'svenimento':
+            attacker.hp = Math.max(1, Math.floor(attacker.hp/2));
+            attacker.v.redirectTurns = 3;
+            printLog(`🎯 Gli avversari saranno costretti a colpire ${attacker.name} per 3 turni!`);
+            break;
+        case 'calcio_balcanico':
+            if (defender && Math.random() < 0.3) changeStage(defender, {Def:-1});
+            break;
+        case 'riposino':
+            healPoke(attacker, 1.0);
+            attacker.status = { type:'Sleep', counter:0, sleepTurns:0 };
+            printLog(`😴 ${attacker.name} recupera tutti gli HP ma si addormenta!`);
+            break;
+        case 'multi_hit': break; // gestito con hit multipli sotto in executeSingleAction? -> gestiamo qui
+        case 'prenotata':
+            if (defender) {
+                let choice = window.prompt(`${attacker.name} usa Prenotata su ${defender.name}. Quale mossa di ${defender.name} deve ripetere per 3 turni? (${defender.moves.map(m=>m.name).join(', ')})`, defender.moves[0].name);
+                let mv = defender.moves.find(m=>m.name===choice) || defender.moves[0];
+                defender.v.forcedMove = { name: mv.name, turnsLeft: 3 };
+                printLog(`🔒 ${defender.name} è costretto a ripetere ${mv.name} per 3 turni!`);
+            }
+            break;
+        case 'heal_full':
+            healPoke(attacker, 1.0);
+            break;
+        case 'cannata': break; // priorità/OHKO gestiti in movePriority/computeDamage extra
+        case 'altini_marito':
+            if (defender && defender.gender === 'Femmina') { printLog(`Altini Marito fallisce sui Pokemon Femmina.`); break; }
+            if (defender && defender.name === 'Altini') changeStage(defender, {Atk:1,SpA:1,Def:1,SpD:1});
+            else if (defender) changeStage(defender, {Atk:-1,SpA:-1,Def:-1,SpD:-1});
+            break;
+        case 'croste':
+            if (defender) { tryInflictStatus(defender, 'Frozen'); defender.v.frozenAtkNoLeave = attacker; defender.v.trapped = true; }
+            break;
+        case 'nuvole':
+            if (defender) tryInflictStatus(defender, 'Confuso');
+            break;
+        case 'low_cortisol':
+            changeStage(attacker, {Spe:-1, SpD:1, Def:1});
+            break;
+        case 'trap_target':
+            if (defender) defender.v.trapped = true;
+            break;
+        case 'kart':
+            allies.forEach(a => changeStage(a, {Spe:1}));
+            break;
+        case 'bibitone':
+            healPoke(attacker, 0.5);
+            changeStage(attacker, {Def:1, Atk:1});
+            break;
+        case 'all_in':
+            if (ctx.failed) {
+                attacker.hp = 0; attacker.isFainted = true;
+                printLog(`💥 All in fallisce! ${attacker.name} va KO!`);
+            } else if (defender) {
+                defender.hp = 0; defender.isFainted = true;
+                printLog(`💥 All in va a segno! ${defender.name} va KO!`);
+            }
+            break;
+        case 'alla_lavagna':
+            if (ctx.failed) break;
+            enemyActive(attacker.trainerId).forEach(e => { if (e.v.lastMoveUsed) e.v.forcedMove = { name: e.v.lastMoveUsed, turnsLeft: 2 }; });
+            break;
+        case 'whisky':
+            if (defender) { tryInflictStatus(defender, 'Confuso'); defender.types = ['Alcol']; }
+            if (attacker.name === 'Ressa') healPoke(attacker, 0.15);
+            break;
+        case 'mignolo_appuntito':
+            if (defender) defender.stages.Atk = clampStage(defender.stages.Atk); // dimezza valore effettivo -> applichiamo come flag
+            if (defender) defender.v.atkHalved = true;
+            break;
+        case 'signorina_daloia': break; // moltiplicatore gestito in computeDamage extra
+        case 'esame_sorpresa':
+            allActive().filter(p=>p.types.includes('Ingegno')).forEach(p => changeStage(p, {Spe:-1, SpA:-1, SpD:-1}));
+            break;
+        case 'gender_pay_gap':
+            allActive().forEach(p => {
+                if (p.gender === 'Maschio') changeStage(p, {Atk:-1, SpA:-1});
+                else changeStage(p, {Atk:1, SpA:1});
+            });
+            break;
+        case 'subito_a_casa': {
+            if (!defender) break;
+            const bench = (defender.trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
+            if (bench.length === 0) { printLog(`Subito a Casa! fallisce: nessun sostituto disponibile.`); break; }
+            const slot = defender.activeSlot;
+            performSwitch(defender.trainerId, slot, bench[0]);
+            break;
+        }
+        case 'bomba_maradona': break; // STAB forzato già gestito nei dati (stab:true)
+        case 'step_back':
+            attacker.types = ['Fitness'];
+            changeStage(attacker, {Spe:2});
+            break;
+        case 'pizza_time':
+            healPoke(attacker, 0.5);
+            break;
+        case 'bang': break;
+        case 'briscola_gigante':
+            setTerreno('Calabro', attacker);
+            break;
+        case 'rifiuto':
+            handleProtect(attacker, 'males');
+            break;
+        case 'depilazione_laser':
+            changeStage(attacker, {Def:-1, SpD:-1});
+            break;
+        case 'cinematografo':
+            allActive().filter(p=>p!==attacker).forEach(p => tryInflictStatus(p, 'Confuso'));
+            break;
+        case 'ringraziando_iddio': {
+            const side = attacker.trainerId===1?gameState.p1Side:gameState.p2Side;
+            side.dmgReductionPct = 0.2; side.dmgReductionTurns = 3;
+            printLog(`🙏 La squadra di Giocatore ${attacker.trainerId} riduce i danni subiti del 20% per 3 turni!`);
+            break;
+        }
+        case 'cuscino_peloso':
+            if (defender) {
+                defender.status = { type:'Sleep', counter:0, sleepTurns:0 };
+                defender.hp = defender.maxHp;
+                defender.v.fungo = false; defender.v.da = false; defender.v.confused = false;
+                printLog(`😴 ${defender.name} viene addormentato ma curato e portato a HP pieni!`);
+            }
+            break;
+        case 'ordine_glovo':
+            changeStage(attacker, {Def:3, SpD:3});
+            healPoke(attacker, 1/3);
+            break;
+        case 'serie_tv':
+            enemyActive(attacker.trainerId).forEach(e => changeStage(e, {Spe:-1}));
+            break;
+        case 'padel_hits': break; // multi-hit gestito sotto
+        case 'heets':
+            if (defender) tryInflictStatus(defender, 'Confuso');
+            break;
+        case 'grattini':
+            if (defender) {
+                const bonus = defender.name === 'Steo' ? 2 : 1;
+                changeStage(defender, {Def:bonus, SpD:bonus});
+            }
+            break;
+        case 'scoordinato':
+            tryInflictStatus(attacker, 'Confuso');
+            break;
+        case 'fluidodinamica': break; // raddoppio danno vs Alcol gestito in computeDamage
+        case 'lavoro_gruppo':
+            allies.filter(a=>a.types.includes('Ingegno')).forEach(a => changeStage(a, {Spe:1, SpD:1, SpA:1}));
+            break;
+        case 'insulto_maschilista': break; // dimezzato vs maschio gestito in computeDamage extra
+        case 'scambio_geografico': {
+            const ally = allyOf(attacker);
+            if (ally) {
+                const aSlot = attacker.activeSlot, allySlot = ally.activeSlot;
+                const active = attacker.trainerId===1?gameState.p1Active:gameState.p2Active;
+                active[aSlot] = ally; active[allySlot] = attacker;
+                attacker.activeSlot = allySlot; ally.activeSlot = aSlot;
+                printLog(`🔀 ${attacker.name} e ${ally.name} si scambiano di posto!`);
+            }
+            break;
+        }
+        case 'puttana':
+            if (defender && defender.gender === 'Femmina') {
+                changeStage(defender, {Def:-1, SpD:-1, Atk:1, SpA:1, Spe:1});
+            } else { printLog(`Puttana! non ha effetto: il bersaglio non è Femmina.`); }
+            break;
+    }
+}
+
+/* Gestione mosse "protect" con probabilità di fallimento crescente */
+function handleProtect(poke, mode) {
+    poke.v.protectStreak = (poke.v.lastProtectRound === gameState.roundNumber - 1) ? poke.v.protectStreak + 1 : 0;
+    poke.v.lastProtectRound = gameState.roundNumber;
+    const failChance = [0, 0.5, 0.99, 1.0][Math.min(poke.v.protectStreak, 3)];
+    if (Math.random() < failChance) { printLog(`🛡️ ${poke.name} fallisce nel proteggersi questa volta!`); return; }
+    if (mode === 'all') { poke.v.protectedThisTurn = true; printLog(`🛡️ ${poke.name} si protegge da qualsiasi attacco!`); }
+    if (mode === 'males') { poke.v.protectedFromMalesThisTurn = true; printLog(`🛡️ ${poke.name} si protegge dagli attacchi dei Pokemon Maschi!`); }
+}
+
+/* Danni extra situazionali (moltiplicatori dipendenti da move.effect) applicati come wrapper */
+const _origComputeDamage = computeDamage;
+computeDamage = function(attacker, defender, move, opts) {
+    const result = _origComputeDamage(attacker, defender, move, opts);
+    if (result.tMod === 0) return result;
+    let dmg = result.dmg;
+    if (move.effect === 'squarta_neri' && (defender.types.includes('Esotico') || defender.types.includes('Terrone'))) dmg *= 3;
+    if (move.effect === 'signorina_daloia' && defender.gender === 'Femmina') dmg *= 3;
+    if (move.effect === 'insulto_maschilista' && defender.gender === 'Maschio') dmg = Math.floor(dmg / 2);
+    if (move.effect === 'viva_il_duce') {
+        const otherMales = (attacker.trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>p!==attacker && p.gender==='Maschio' && !p.isFainted).length;
+        // BP effettivo già fisso a 40 nei dati; applichiamo bonus proporzionale come moltiplicatore equivalente
+        dmg = Math.floor(dmg * (40 + 20*otherMales) / 40);
+    }
+    if (defender.v.atkHalved && (move.category==='Fisico')) { /* si applica all'attaccante quando attacca lui, gestito sotto */ }
+    if (attacker.v.atkHalved) dmg = Math.floor(dmg * 0.5);
+    return { dmg: Math.max(1, dmg), tMod: result.tMod };
+};
+
+/* Multi-hit (spara sushi 2-5, Colpo di Padel 2-4) gestiti come hit multipli extra dopo il colpo base */
+const _origExecuteSingleAction = executeSingleAction;
+executeSingleAction = function(attacker, defender, move, flinchedSet) {
+    _origExecuteSingleAction(attacker, defender, move, flinchedSet);
+    if (!move.effect) return;
+    if ((move.effect === 'multi_hit' || move.effect === 'padel_hits') && defender && !defender.isFainted && !attacker.isFainted) {
+        const extraHits = move.effect === 'multi_hit' ? (Math.floor(Math.random()*4)+1) : (Math.floor(Math.random()*2)+1); // hit totali già 1 fatto sopra: aggiungiamo da 1 a 4 (tot 2-5) o 1-2 (tot 2-3~4)
+        for (let i=0;i<extraHits && !defender.isFainted;i++) {
+            const { dmg, tMod } = computeDamage(attacker, defender, move, { isCrit:false, numTargets:1 });
+            if (tMod === 0) break;
+            defender.hp = Math.max(0, defender.hp - dmg);
+            printLog(`💥 Colpo aggiuntivo: ${defender.name} subisce ${dmg} danni!`);
+            if (defender.hp === 0) { defender.isFainted = true; printLog(`💀 ${defender.name} è andato KO!`); handleFaint(defender); }
+        }
+    }
+};
+
+/* =========================================================================
+   FINE TURNO: status, campo, rientri
+   ========================================================================= */
+function endOfRoundEffects() {
+    // rientro Pausa Siga
+    if (gameState.pendingReturn && gameState.pendingReturn.length) {
+        gameState.pendingReturn.forEach(entry => {
+            const active = entry.trainerId===1?gameState.p1Active:gameState.p2Active;
+            if (active[entry.slot] === null || active[entry.slot] === undefined) {
+                if (!entry.poke.isFainted) {
+                    active[entry.slot] = entry.poke;
+                    entry.poke.activeSlot = entry.slot;
+                    printLog(`🚬 ${entry.poke.name} rientra in campo dopo la pausa sigaretta!`);
+                }
+            }
+        });
+        gameState.pendingReturn = [];
+    }
+
+    allActive().forEach(p => {
+        if (p.isFainted) return;
+        if (p.status.type === 'Burn') { const d = Math.floor(p.maxHp/16); p.hp = Math.max(0,p.hp-d); printLog(`🔥 ${p.name} subisce ${d} danni da Burn.`); }
+        if (p.status.type === 'Iperavvelenato') {
+            p.status.counter = (p.status.counter||0) + 1;
+            const frac = Math.min(1, Math.pow(2, p.status.counter-1) / 16);
+            const d = Math.floor(p.maxHp * frac);
+            p.hp = Math.max(0, p.hp - d);
+            printLog(`☠️ ${p.name} subisce ${d} danni da Iperavvelenamento.`);
+        }
+        if (p.v.fungo) { const d = Math.floor(p.maxHp/8); p.hp = Math.max(0,p.hp-d); printLog(`🍄 ${p.name} subisce ${d} danni da Fungo.`); }
+        if (p.hp === 0 && !p.isFainted) { p.isFainted = true; printLog(`💀 ${p.name} è andato KO per lo stato!`); }
+    });
+
+    if (gameState.field.clima === 'Fumo') {
+        allActive().forEach(p => {
+            if (p.isFainted || p.types.includes('Fumo')) return;
+            const frac = (p.types.includes('Fitness') || p.types.includes('Puro')) ? 1/10 : 1/16;
+            const d = Math.floor(p.maxHp * frac);
+            p.hp = Math.max(0, p.hp - d);
+            printLog(`☁️ ${p.name} subisce ${d} danni dal Clima Fumo.`);
+            if (p.hp === 0) { p.isFainted = true; printLog(`💀 ${p.name} è andato KO per il Clima!`); }
+        });
+    }
+
+    // riduzione contatori
+    if (gameState.field.terrenoTurns > 0 && --gameState.field.terrenoTurns === 0) { printLog(`🌿 Il Terreno ${gameState.field.terreno} svanisce.`); gameState.field.terreno = null; }
+    if (gameState.field.climaTurns > 0 && --gameState.field.climaTurns === 0) { printLog(`☁️ Il Clima ${gameState.field.clima} svanisce.`); gameState.field.clima = null; }
+    [gameState.p1Side, gameState.p2Side].forEach(s => { if (s.dmgReductionTurns > 0 && --s.dmgReductionTurns === 0) s.dmgReductionPct = 0; });
+
+    allActive().forEach(p => {
+        Object.keys(p.v.moveLockout).forEach(mv => { if (p.v.moveLockout[mv] > 0) p.v.moveLockout[mv]--; });
+        if (p.v.redirectTurns > 0) p.v.redirectTurns--;
+    });
+
+    // pokemon KO: switch forzato
+    handleForcedSwitches();
+}
+
+function handleForcedSwitches() {
+    [1,2].forEach(trainerId => {
+        const active = trainerId===1?gameState.p1Active:gameState.p2Active;
+        for (let i=0;i<2;i++) {
+            if (active[i] === null) {
+                const bench = (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
+                if (bench.length > 0) {
+                    gameState.phase = 'forced-switch';
+                    printLog(`⏳ Giocatore ${trainerId} deve mandare in campo un nuovo Pokémon nello slot ${i+1}.`);
+                    showModal(`Giocatore ${trainerId}: scegli il prossimo Pokémon (slot ${i+1})`, bench.map(b => ({
+                        label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
+                        onClick: () => performSwitch(trainerId, i, b)
+                    })));
+                    return;
+                }
+            }
+        }
+    });
+    if (gameState.phase === 'forced-switch') gameState.phase = 'battle';
+}
+function resumeAfterForcedSwitch() { handleForcedSwitches(); if (gameState.phase!=='forced-switch') updateUI(); }
+
+window.onload = () => { initRosterSelection(); };
+</script>
+</body>
+</html>
