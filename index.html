@@ -135,7 +135,7 @@
    DATI DI BASE
    ========================================================================= */
 const RAW_POKEMON_DATA = [
-    { name:"Pie", gender:"Maschio", base:{HP:90,Atk:76,Def:85,SpA:103,SpD:85,Spe:81}, types:["Lercio","Chill"], ability:"fascino di pie",
+    { name:"Pie", gender:"Maschio", base:{HP:90,Atk:76,Def:85,SpA:103,SpD:85,Spe:81}, types:["Lercio","Chill"], ability:"Fascino di Pie",
       moves:[
         {name:"Peto tossico", type:"Lercio", category:"Speciale", bp:15, target:"All Opponents", effect:"hyper_poison"},
         {name:"Sorriso", type:"Chill", category:"Stato", bp:0, priority:3, target:"Self", effect:"protect_and_terrain_chill"},
@@ -562,7 +562,7 @@ function changeStage(target, deltas, opts={}) {
    ========================================================================= */
 function tryInflictStatus(target, statusType, source) {
     if (target.isFainted) return false;
-    if (target.ability === 'fascino di pie' && (statusType==='Iperavvelenato')) return false;
+    if (target.ability === 'Fascino di Pie' && (statusType==='Iperavvelenato')) return false;
     if (EXCLUSIVE_STATUSES.includes(statusType)) {
         if (target.status.type) { printLog(`${target.name} è già affetto da ${target.status.type}, ${statusType} non ha effetto.`); return false; }
         target.status = { type: statusType, counter:0, sleepTurns:0 };
@@ -605,7 +605,7 @@ function checkAccuracy(attacker, defender, move) {
     if (move.effect === 'bang') return true; // Bang! non evitabile
     let acc = (move.accuracy != null) ? move.accuracy : 100;
     // Tutti i modificatori di precisione sono relativi (moltiplicativi), non sottrattivi.
-    if (fieldHasAbility('fascino di pie') && attacker.gender === 'Femmina') acc *= 0.8;
+    if (fieldHasAbility('Fascino di Pie') && attacker.gender === 'Femmina') acc *= 0.8;
     if (gameState.field.terreno === 'Alcol' && move.type !== 'Alcol' && !attacker.types.includes('Alcol')) acc *= 0.9;
     if (attacker.v.accuracyPenalty) acc *= Math.max(0, 1 - attacker.v.accuracyPenalty/100);
     acc = Math.max(0, Math.min(100, acc));
@@ -635,7 +635,7 @@ function computeDamage(attacker, defender, move, {isCrit=false, numTargets=1, fo
     let dmg = Math.floor(base * stab * tMod * multiTargetMod * critMod);
 
     // Riduzioni danno da abilità/effetti
-    if (fieldHasAbility('fascino di pie') && defender.gender === 'Femmina') dmg = Math.floor(dmg * 0.8);
+    if (fieldHasAbility('Fascino di Pie') && defender.gender === 'Femmina') dmg = Math.floor(dmg * 0.8);
     if (defender.ability === 'Gluten Free' && (move.type === 'Alcol' || move.type === 'Cibo')) dmg = Math.floor(dmg * 0.75);
     if (defender.ability === 'Divano e Canna' && move.type === 'Terrone') dmg = Math.floor(dmg * 0.75);
     if (defender.ability === 'Passato Oscuro' && (gameState.field.clima === 'Fumo' || gameState.field.terreno === 'Alcol')) dmg = Math.floor(dmg * 0.85);
