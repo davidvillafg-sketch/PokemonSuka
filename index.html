@@ -205,7 +205,7 @@ const RAW_POKEMON_DATA = [
         {name:"Squarta neri", type:"Dittatore", category:"Fisico", bp:30, target:"Single Target", effect:"squarta_neri"},
         {name:"Pollo arrosto", type:"Cibo", category:"Stato", bp:0, target:"Self", effect:"heal_full"}
       ]},
-    { name:"Fera", gender:"Femmina", base:{HP:70,Atk:51,Def:100,SpA:130,SpD:100,Spe:69}, types:["Terrone","Puro"], ability:"gran voce",
+    { name:"Fera", gender:"Femmina", base:{HP:70,Atk:51,Def:100,SpA:130,SpD:100,Spe:69}, types:["Terrone","Puro"], ability:"Gran Voce",
       moves:[
         {name:"Cannata!!!", type:"Terrone", category:"Speciale", bp:50, accuracy:80, sound:true, target:"Single Target", effect:"cannata"},
         {name:"Altini Marito", type:"Puro", category:"Stato", bp:0, target:"Single Target", effect:"altini_marito"},
@@ -219,7 +219,7 @@ const RAW_POKEMON_DATA = [
         {name:"Squarta neri", type:"Dittatore", category:"Fisico", bp:30, target:"Single Target", effect:"squarta_neri"},
         {name:"Low cortisol", type:"Chill", category:"Stato", bp:0, target:"Self", effect:"low_cortisol"}
       ]},
-    { name:"Matte Iliev", gender:"Maschio", base:{HP:90,Atk:120,Def:90,SpA:60,SpD:80,Spe:80}, types:["Cibo","Fitness"], ability:"baffo",
+    { name:"Matte Iliev", gender:"Maschio", base:{HP:90,Atk:120,Def:90,SpA:60,SpD:80,Spe:80}, types:["Cibo","Fitness"], ability:"Baffo",
       moves:[
         {name:"Pescare", type:"Cibo", category:"Fisico", bp:70, target:"Single Target", effect:"trap_target"},
         {name:"Kart", type:"Fitness", category:"Stato", bp:0, target:"All Allies", effect:"kart"},
@@ -475,7 +475,7 @@ function abilityStageDelta(poke, stat) {
         if (ally.gender === 'Maschio') { if (stat==='Atk'||stat==='Spe') d += 1; }
         if (ally.types.includes('Terrone') || ally.types.includes('Esotico')) { if (stat==='Atk') d -= 1; }
     }
-    if (poke.ability === "baffo" && ally && ally.gender === 'Maschio') { if (stat==='Def'||stat==='Atk') d += 1; }
+    if (poke.ability === "Baffo" && ally && ally.gender === 'Maschio') { if (stat==='Def'||stat==='Atk') d += 1; }
     if (poke.ability === "Tolleranza" ||  fieldHasAbility('Tolleranza')) {
         if ((poke.types.includes('Esotico') || poke.types.includes('Terrone')) && (stat==='Def'||stat==='SpD')) d += 2;
     }
@@ -624,7 +624,7 @@ function computeDamage(attacker, defender, move, {isCrit=false, numTargets=1, fo
     let base = Math.floor((22 * move.bp * aStat / dStat) / 50) + 2;
     let stab = (attacker.types.includes(move.type) || forceStab || move.stab || attacker.ability === 'goblin') ? 1.5 : 1.0;
     if (move.effect === 'fluidodinamica' && defender.types.includes('Alcol')) base *= 2;
-    if (move.sound && attacker.ability === 'gran voce') base = Math.floor(base * 1.5);
+    if (move.sound && attacker.ability === 'Gran Voce') base = Math.floor(base * 1.5);
 
     let tMod = typeMultiplier(move.type, defender.types);
     if (tMod === 0) return { dmg:0, tMod };
