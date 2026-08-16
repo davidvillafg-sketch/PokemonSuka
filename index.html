@@ -90,6 +90,10 @@
     }
     .modal-box button { display:block; width: 100%; margin: 4px 0; text-align: left; background:#34495e; }
     .modal-box button:hover { background:#4e6d8c; }
+    .pass-device-box { text-align: center; }
+    .pass-device-box button { text-align: center; }
+    #continue-turn-btn { padding: 12px 24px; font-size: 1em; background: #27ae60; }
+    #continue-turn-btn:hover { background: #1e8449; }
 </style>
 </head>
 <body>
@@ -371,7 +375,10 @@ function confirmPlayerSelection() {
         document.getElementById("selector-title").innerText = "Turno: Giocatore 2 (Selezionati: 0/4)";
         document.getElementById("confirm-selection").innerText = "Avvia Battaglia";
         document.getElementById("confirm-selection").disabled = true;
-        initRosterSelection();
+        // Popup di passaggio dispositivo tra la selezione di P1 e quella di P2
+        showPassDevice(2, () => {
+            initRosterSelection();
+        });
     } else {
         gameState.p2TeamTemplates = [...selectedIndices];
         startBattle();
@@ -666,7 +673,8 @@ function startBattle() {
     printLog("⚔️ La battaglia VGC ha inizio tra Giocatore 1 e Giocatore 2!");
     allActive().forEach(p => triggerEntryAbility(p));
     updateUI();
-    promptNextMove();
+    // Popup di passaggio dispositivo prima del primo turno di Giocatore 1
+    showPassDevice(1, () => promptNextMove());
 }
 
 function triggerEntryAbility(poke) {
@@ -768,6 +776,54 @@ function showModal(title, options) {
 }
 function closeModal() { document.getElementById("modal-root").innerHTML = ""; }
 
+// Popup "Passa il dispositivo al Giocatore X": blocca l'interfaccia finché il giocatore
+// che deve ricevere il dispositivo non conferma di essere pronto. Usato sia tra la
+// selezione delle squadre sia a inizio di ogni nuovo turno di battaglia.
+function showPassDevice(playerNum, callback) {
+    const root = document.getElementById("modal-root");
+    root.innerHTML = `<div class="modal-overlay"><div class="modal-box pass-device-box">
+        <h3>📱 Passa il dispositivo al Giocatore ${playerNum}</h3>
+        <p>Assicurati che l'altro giocatore non stia guardando lo schermo, poi continua.</p>
+        <div id="pass-device-btn-holder"></div>
+    </div></div>`;
+    const holder = document.getElementById("pass-device-btn-holder");
+    const btn = document.createElement("button");
+    btn.innerText = `Continua come Giocatore ${playerNum}`;
+    btn.style.background = "#27ae60";
+    btn.onclick = () => { root.innerHTML = ""; callback(); };
+    holder.appendChild(btn);
+}
+
+// Ripristina la struttura standard dell'area di controllo (etichetta + griglia mosse +
+// pulsanti Cambia/Salta), usata dopo che era stata sostituita dal bottone "Prosegui al
+// prossimo turno" (o da qualunque altro contenuto temporaneo).
+function restoreControlsArea() {
+    document.getElementById("controls-area").innerHTML = `
+        <div>
+            <h4 id="current-actor-label">Tocca a: -</h4>
+            <div class="moves-grid" id="moves-grid"></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 5px; justify-content: center;">
+            <button class="secondary-btn" onclick="openSwitchMenu()">Cambia Pokémon</button>
+            <button class="secondary-btn" onclick="skipTurn()">Salta Turno</button>
+        </div>`;
+}
+
+// Sostituisce l'area di controllo con un unico bottone "Prosegui al prossimo turno",
+// mostrato dopo la risoluzione di tutte le mosse e degli effetti di fine turno (status,
+// campo, ecc.), lasciando il log ben visibile finché il giocatore non decide di continuare.
+function showContinueButton() {
+    const area = document.getElementById("controls-area");
+    area.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align:center;">
+            <button id="continue-turn-btn">▶️ Prosegui al prossimo turno</button>
+        </div>`;
+    document.getElementById("continue-turn-btn").onclick = () => {
+        area.innerHTML = "";
+        handleForcedSwitches(finishRound);
+    };
+}
+
 /* =========================================================================
    TURNO: SELEZIONE AZIONI
    ========================================================================= */
@@ -790,6 +846,7 @@ function checkWinner() {
 
 function promptNextMove() {
     if (checkWinner()) return;
+    restoreControlsArea();
 
     let activePoke = currentTrainerTurn===1 ? gameState.p1Active[currentSlotTurn] : gameState.p2Active[currentSlotTurn];
     if (!activePoke || activePoke.isFainted) { advanceActor(); return; }
@@ -858,7 +915,7 @@ function queueAction(actor, move, target) {
     // prende il suo posto, la mossa dovrà colpire chi si trova ORA in quello slot, non l'oggetto
     // Pokémon scelto al momento della selezione.
     const targetInfo = target ? { trainerId: target.trainerId, slot: target.activeSlot } : null;
-    roundActions.push({ trainer: actor.trainerId, slot: actor.activeSlot, actor, move, target, targetInfo });
+    roundActions.push({ type:'move', trainer: actor.trainerId, slot: actor.activeSlot, actor, move, target, targetInfo });
 }
 
 function skipTurn() {
@@ -872,7 +929,11 @@ function advanceActor() {
     currentSlotTurn++;
     if (currentSlotTurn > 1) {
         currentSlotTurn = 0;
-        if (currentTrainerTurn === 1) { currentTrainerTurn = 2; promptNextMove(); }
+        if (currentTrainerTurn === 1) {
+            currentTrainerTurn = 2;
+            // Popup di passaggio dispositivo prima che Giocatore 2 selezioni le proprie azioni
+            showPassDevice(2, () => promptNextMove());
+        }
         else { currentTrainerTurn = 1; executeTurnQueue(); }
     } else {
         promptNextMove();
@@ -890,14 +951,23 @@ function openSwitchMenu() {
     if (bench.length === 0) { printLog("Nessun Pokémon disponibile per il cambio."); return; }
     showModal(`Cambia con:`, bench.map(b => ({
         label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
-        onClick: () => performSwitch(trainerId, currentSlotTurn, b)
+        onClick: () => queueSwitchAction(trainerId, currentSlotTurn, activePoke, b)
     })));
+}
+
+// Mette in coda uno switch "posticipato": la scelta viene registrata (senza eseguirla né
+// loggarla) esattamente come farebbe una mossa, e verrà risolta solo all'inizio
+// dell'esecuzione del turno, con priorità sempre massima rispetto a qualunque mossa.
+function queueSwitchAction(trainerId, slot, actor, newPoke) {
+    roundActions.push({ type:'switch', trainer: trainerId, slot, actor, newPoke });
+    advanceActor();
 }
 
 // Esegue lo scambio "meccanico" (chi esce/chi entra + abilità d'ingresso + refresh UI)
 // senza toccare il flusso di selezione/esecuzione del turno. Va usato ogni volta che
-// uno scambio avviene DENTRO l'esecuzione di una mossa (Pausa Siga, Subito a Casa!, ecc.)
-// o durante la risoluzione di uno switch forzato per KO.
+// uno scambio avviene DENTRO l'esecuzione di una mossa (Pausa Siga, Subito a Casa!, ecc.),
+// durante la risoluzione degli switch manuali posticipati a inizio turno, o durante la
+// risoluzione di uno switch forzato per KO.
 function directSwitchIn(trainerId, slot, newPoke) {
     const active = trainerId===1?gameState.p1Active:gameState.p2Active;
     const old = active[slot];
@@ -907,17 +977,6 @@ function directSwitchIn(trainerId, slot, newPoke) {
     printLog(`🔄 Giocatore ${trainerId} manda in campo ${newPoke.name}!`);
     triggerEntryAbility(newPoke);
     updateUI();
-}
-
-// Usato SOLO quando il cambio è la mossa scelta da un giocatore durante la fase
-// di selezione delle azioni (bottone "Cambia Pokémon"): in quel caso, dopo il
-// cambio si deve proseguire con la selezione della prossima azione. Poiché il
-// target delle mosse già in coda viene risolto DINAMICAMENTE in base allo slot
-// (vedi processQueuedAction), un eventuale bersaglio già scelto da un avversario
-// per lo slot appena liberato seguirà automaticamente il nuovo occupante.
-function performSwitch(trainerId, slot, newPoke) {
-    directSwitchIn(trainerId, slot, newPoke);
-    advanceActor();
 }
 
 /* =========================================================================
@@ -932,6 +991,23 @@ function movePriority(action) {
 function executeTurnQueue() {
     printLog("<br>--- <b>INIZIO TURNO</b> ---");
     gameState.roundNumber++;
+
+    // Gli switch manuali posticipati hanno SEMPRE priorità massima: vengono risolti
+    // tutti, per entrambi i giocatori, prima di qualunque mossa (incluse quelle a
+    // priorità +3 come Sorriso/Balzata). Vengono eseguiti nell'ordine in cui sono
+    // stati scelti durante la selezione.
+    const switchActions = roundActions.filter(a => a.type === 'switch');
+    const moveActions = roundActions.filter(a => a.type !== 'switch');
+
+    switchActions.forEach(a => {
+        const active = a.trainer===1?gameState.p1Active:gameState.p2Active;
+        if (a.actor.isFainted) return; // sicurezza: non dovrebbe accadere in questa fase
+        if (active[a.slot] !== a.actor) return; // lo slot è già stato modificato in modo imprevisto
+        if (a.newPoke.isFainted || a.newPoke.activeSlot !== null) return; // il sostituto non è più disponibile
+        directSwitchIn(a.trainer, a.slot, a.newPoke);
+    });
+
+    roundActions = moveActions;
 
     roundActions.sort((a,b) => {
         let pa = movePriority(a), pb = movePriority(b);
@@ -961,9 +1037,9 @@ function processQueuedAction(idx, flinched) {
     if (flinched.has(action.actor)) { printLog(`😵 ${action.actor.name} tentenna e non può muoversi!`); proceed(); return; }
 
     // Risolve il bersaglio "live": se lo slot originale ora è occupato da un Pokémon diverso
-    // (switch manuale o Pausa Siga avvenuti dopo la selezione dell'azione), la mossa segue
-    // il nuovo occupante. Se invece lo slot è vuoto (il bersaglio è andato KO e non è ancora
-    // stato sostituito), manteniamo l'oggetto originale così la logica più sotto in
+    // (switch manuale posticipato o Pausa Siga avvenuti prima/durante l'esecuzione), la mossa
+    // segue il nuovo occupante. Se invece lo slot è vuoto (il bersaglio è andato KO e non è
+    // ancora stato sostituito), manteniamo l'oggetto originale così la logica più sotto in
     // executeSingleAction può correttamente reindirizzare verso un eventuale alleato.
     let liveTarget = action.target;
     if (action.targetInfo) {
@@ -1001,7 +1077,8 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     if (attacker.v.confused) {
         const escapeChance = gameState.field.terreno === 'Alcol' ? 0.125 : 0.25;
         if (Math.random() < escapeChance) { attacker.v.confused = false; printLog(`💫 ${attacker.name} non è più confuso.`); }
-        else if (Math.random() < 0.5) {
+        else if (Math.random() < 0.33) {
+            // La confusione ha il 33% di probabilità di impedire la mossa e far colpire se stessi
             const selfDmg = Math.max(1, Math.floor(attacker.maxHp * 0.08));
             attacker.hp = Math.max(0, attacker.hp - selfDmg);
             printLog(`💫 ${attacker.name} è confuso e si colpisce da solo (${selfDmg} danni)!`);
@@ -1043,6 +1120,27 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
 
     if (attacker.ability === 'Ottimizzazione' && move.category !== 'Stato') {
         attacker.v.giaLastDamagingRound = gameState.roundNumber;
+    }
+
+    // All in: gestita interamente qui perché è una mossa a BP 0 non di Stato che deve
+    // mettere KO il bersaglio se va a segno, o l'attaccante stesso (Matte Iliev) se fallisce.
+    if (move.effect === 'all_in') {
+        if (!defender) { printLog(`${move.name} fallisce: nessun bersaglio disponibile.`); onComplete(); return; }
+        if (isProtected(defender, attacker, move)) {
+            printLog(`🛡️ ${defender.name} si protegge dall'attacco!`);
+            onComplete(); return;
+        }
+        if (checkAccuracy(attacker, defender, move)) {
+            defender.hp = 0; defender.isFainted = true;
+            printLog(`💥 All in va a segno! ${defender.name} va KO!`);
+            handleFaint(defender);
+        } else {
+            attacker.hp = 0; attacker.isFainted = true;
+            printLog(`💥 All in fallisce! ${attacker.name} va KO!`);
+            handleFaint(attacker);
+        }
+        onComplete();
+        return;
     }
 
     // Cannata!!! ignora qualsiasi protezione se il bersaglio ha l'abilità Scopiamo
@@ -1097,9 +1195,14 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         if (t !== attacker && isProtected(t, attacker, move)) { printLog(`🛡️ ${t.name} si protegge!`); return; }
         const { dmg, tMod } = computeDamage(attacker, t, move, { isCrit, numTargets: targets.length });
         if (tMod === 0) { printLog(`🚫 Non ha effetto su ${t.name}.`); return; }
+        // Recoil: contiamo solo gli HP EFFETTIVAMENTE sottratti (capped a 0), non il danno
+        // teorico della mossa. Se il colpo manda KO con meno danno di quello calcolato,
+        // il contraccolpo successivo si baserà solo sulla parte realmente inflitta.
+        const hpBefore = t.hp;
         t.hp = Math.max(0, t.hp - dmg);
-        totalDamage += dmg;
-        printLog(`💥 ${t.name} subisce ${dmg} danni!` + (tMod>1?' 🔺 Superefficace!':tMod<1?' 🔻 Poco efficace...':''));
+        const actualDamage = hpBefore - t.hp;
+        totalDamage += actualDamage;
+        printLog(`💥 ${t.name} subisce ${actualDamage} danni!` + (tMod>1?' 🔺 Superefficace!':tMod<1?' 🔻 Poco efficace...':''));
         if (t.hp === 0) { t.isFainted = true; printLog(`💀 <b>${t.name} è andato KO!</b>`); }
     });
 
@@ -1315,15 +1418,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             healPoke(attacker, 0.5);
             changeStage(attacker, {Def:1, Atk:1});
             break;
-        case 'all_in':
-            if (ctx.failed) {
-                attacker.hp = 0; attacker.isFainted = true;
-                printLog(`💥 All in fallisce! ${attacker.name} va KO!`);
-            } else if (defender) {
-                defender.hp = 0; defender.isFainted = true;
-                printLog(`💥 All in va a segno! ${defender.name} va KO!`);
-            }
-            break;
+        case 'all_in': break; // gestito interamente in executeSingleAction (KO/self-KO)
         case 'alla_lavagna':
             if (ctx.failed) break;
             enemyActive(attacker.trainerId).forEach(e => { if (e.v.lastMoveUsed) e.v.forcedMove = { name: e.v.lastMoveUsed, turnsLeft: 2 }; });
@@ -1547,10 +1642,11 @@ function endOfRoundEffects() {
         if (p.v.redirectTurns > 0) p.v.redirectTurns--;
     });
 
-    // Pokemon KO: switch forzato per TUTTI gli slot vuoti rimasti (anche più di uno
-    // contemporaneamente, sullo stesso giocatore o su entrambi), uno alla volta in coda,
-    // così nessuna richiesta di sostituzione viene persa o sovrascritta.
-    handleForcedSwitches(finishRound);
+    // A questo punto tutte le mosse e gli effetti di fine turno sono stati risolti: il gioco
+    // si ferma qui, mostrando il bottone "Prosegui al prossimo turno" al posto della griglia
+    // mosse, così il log può essere letto con calma. Solo al click si procede con eventuali
+    // sostituzioni forzate per KO e si passa effettivamente al turno successivo.
+    showContinueButton();
 }
 
 function finishRound() {
@@ -1558,7 +1654,10 @@ function finishRound() {
     currentTrainerTurn = 1;
     currentSlotTurn = 0;
     updateUI();
-    if (!checkWinner()) promptNextMove();
+    if (!checkWinner()) {
+        // Popup di passaggio dispositivo a inizio di ogni nuovo turno
+        showPassDevice(1, () => promptNextMove());
+    }
 }
 
 // Trova tutti gli slot vuoti (di entrambi i giocatori) che hanno ancora un sostituto
