@@ -324,7 +324,8 @@ let gameState = {
     field:{ terreno:null, terrenoTurns:0, clima:null, climaTurns:0 },
     p1Side:{ dmgReductionPct:0, dmgReductionTurns:0 },
     p2Side:{ dmgReductionPct:0, dmgReductionTurns:0 },
-    roundNumber:0
+    roundNumber:0,
+    pendingReturn:[]
 };
 
 /* =========================================================================
@@ -819,7 +820,11 @@ function onMoveChosen(attacker, move) {
 }
 
 function queueAction(actor, move, target) {
-    roundActions.push({ trainer: actor.trainerId, slot: actor.activeSlot, actor, move, target });
+    // Registriamo anche slot/trainer originali del bersaglio: se nel frattempo (es. per
+    // Pausa Siga) qualcun altro prende il suo posto, la mossa dovrà colpire chi si trova
+    // ORA in quello slot, non l'oggetto Pokémon scelto al momento della selezione.
+    const targetInfo = target ? { trainerId: target.trainerId, slot: target.activeSlot } : null;
+    roundActions.push({ trainer: actor.trainerId, slot: actor.activeSlot, actor, move, target, targetInfo });
 }
 
 function skipTurn() {
@@ -855,7 +860,11 @@ function openSwitchMenu() {
     })));
 }
 
-function performSwitch(trainerId, slot, newPoke) {
+// Esegue lo scambio "meccanico" (chi esce/chi entra + abilità d'ingresso + refresh UI)
+// senza toccare il flusso di selezione/esecuzione del turno. Va usato ogni volta che
+// uno scambio avviene DENTRO l'esecuzione di una mossa (Pausa Siga, Subito a Casa!, ecc.)
+// o durante la risoluzione di uno switch forzato per KO.
+function directSwitchIn(trainerId, slot, newPoke) {
     const active = trainerId===1?gameState.p1Active:gameState.p2Active;
     const old = active[slot];
     if (old) old.resetOnSwitchOut();
@@ -864,12 +873,14 @@ function performSwitch(trainerId, slot, newPoke) {
     printLog(`🔄 Giocatore ${trainerId} manda in campo ${newPoke.name}!`);
     triggerEntryAbility(newPoke);
     updateUI();
-    if (gameState.phase === 'forced-switch') {
-        gameState.phase = 'battle';
-        resumeAfterForcedSwitch();
-    } else {
-        advanceActor();
-    }
+}
+
+// Usato SOLO quando il cambio è la mossa scelta da un giocatore durante la fase
+// di selezione delle azioni (bottone "Cambia Pokémon"): in quel caso, dopo il
+// cambio si deve proseguire con la selezione della prossima azione.
+function performSwitch(trainerId, slot, newPoke) {
+    directSwitchIn(trainerId, slot, newPoke);
+    advanceActor();
 }
 
 /* =========================================================================
@@ -892,22 +903,30 @@ function executeTurnQueue() {
     });
 
     // Fermii: se è la prima mossa in ordine di priorità di chi la usa ed è la prima volta che agisce, fa flinchare chi deve ancora muoversi
-    let flinched = new Set();
+    const flinched = new Set();
+    processQueuedAction(0, flinched);
+}
 
-    for (const action of roundActions) {
-        if (action.actor.isFainted) continue;
-        if (flinched.has(action.actor)) { printLog(`😵 ${action.actor.name} tentenna e non può muoversi!`); continue; }
-        executeSingleAction(action.actor, action.target, action.move, flinched);
-        if (checkWinner()) return;
+// Processa le azioni della coda una alla volta, in sequenza. Alcune mosse (es. Pausa
+// Siga) richiedono che il giocatore scelga qualcosa a metà dell'esecuzione: in quel
+// caso l'azione corrente "mette in pausa" la coda e la richiama da sola (tramite il
+// callback onComplete passato a executeSingleAction/runMoveEffect) solo dopo che la
+// scelta è stata fatta, così l'ordine delle azioni successive resta corretto.
+function processQueuedAction(idx, flinched) {
+    if (idx >= roundActions.length) {
+        endOfRoundEffects();
+        return;
     }
+    const action = roundActions[idx];
+    const proceed = () => processQueuedAction(idx + 1, flinched);
 
-    // fine turno: status ticking, campo
-    endOfRoundEffects();
-    roundActions = [];
-    currentTrainerTurn = 1;
-    currentSlotTurn = 0;
-    updateUI();
-    if (!checkWinner()) promptNextMove();
+    if (action.actor.isFainted) { proceed(); return; }
+    if (flinched.has(action.actor)) { printLog(`😵 ${action.actor.name} tentenna e non può muoversi!`); proceed(); return; }
+
+    executeSingleAction(action.actor, action.target, action.move, flinched, () => {
+        if (checkWinner()) return;
+        proceed();
+    });
 }
 
 function isProtected(defender, attacker, move) {
@@ -916,17 +935,19 @@ function isProtected(defender, attacker, move) {
     return false;
 }
 
-function executeSingleAction(attacker, defender, move, flinchedSet) {
+function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) {
+    onComplete = onComplete || function(){};
+
     if (attacker.status.type === 'Sleep') {
         attacker.status.sleepTurns++;
         if (attacker.status.sleepTurns >= 3 || (attacker.status.sleepTurns===2 && Math.random()<0.5)) {
             attacker.status = {type:null,counter:0,sleepTurns:0};
             printLog(`😴 ${attacker.name} si sveglia!`);
-        } else { printLog(`😴 ${attacker.name} dorme ancora.`); return; }
+        } else { printLog(`😴 ${attacker.name} dorme ancora.`); onComplete(); return; }
     }
     if (attacker.status.type === 'Frozen') {
         if (Math.random() < 0.5) { attacker.status = {type:null,counter:0,sleepTurns:0}; printLog(`🧊 ${attacker.name} si libera dal gelo!`); }
-        else { printLog(`🧊 ${attacker.name} è congelato e non può muoversi!`); return; }
+        else { printLog(`🧊 ${attacker.name} è congelato e non può muoversi!`); onComplete(); return; }
     }
     if (attacker.v.confused) {
         const escapeChance = gameState.field.terreno === 'Alcol' ? 0.125 : 0.25;
@@ -936,7 +957,7 @@ function executeSingleAction(attacker, defender, move, flinchedSet) {
             attacker.hp = Math.max(0, attacker.hp - selfDmg);
             printLog(`💫 ${attacker.name} è confuso e si colpisce da solo (${selfDmg} danni)!`);
             if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${attacker.name} è andato KO!`); handleFaint(attacker); }
-            return;
+            onComplete(); return;
         }
     }
 
@@ -952,13 +973,13 @@ function executeSingleAction(attacker, defender, move, flinchedSet) {
             enemyActive(attacker.trainerId).forEach(e => flinchedSet.add(e));
             printLog(`💨 ${attacker.name} usa Fermii! Gli avversari che devono ancora muoversi tentennano!`);
         }
-        return;
+        onComplete(); return;
     }
     attacker.v.hadFirstMoveUsed = true;
 
     if (defender && defender.isFainted) {
         const ally = sideActive(defender.trainerId).find(p=>p!==defender);
-        if (!ally) { printLog(`${move.name} fallisce: nessun bersaglio disponibile.`); return; }
+        if (!ally) { printLog(`${move.name} fallisce: nessun bersaglio disponibile.`); onComplete(); return; }
         defender = ally;
     }
 
@@ -966,21 +987,21 @@ function executeSingleAction(attacker, defender, move, flinchedSet) {
 
     if (defender && move.target === 'Single Target' && isProtected(defender, attacker, move)) {
         printLog(`🛡️ ${defender.name} si protegge dall'attacco!`);
-        return;
+        onComplete(); return;
     }
 
     if (move.target === 'Single Target' && move.category !== 'Stato') {
-        if (!checkAccuracy(attacker, defender, move)) { printLog(`❌ ${move.name} non va a segno!`); return; }
+        if (!checkAccuracy(attacker, defender, move)) { printLog(`❌ ${move.name} non va a segno!`); onComplete(); return; }
     } else if (move.accuracy != null) {
         if (!checkAccuracy(attacker, defender || attacker, move)) {
             printLog(`❌ ${move.name} non va a segno!`);
-            runMoveEffect(move, attacker, defender, { failed:true });
+            runMoveEffect(move, attacker, defender, { failed:true }, onComplete);
             return;
         }
     }
 
     if (move.category === 'Stato' && move.bp === 0) {
-        runMoveEffect(move, attacker, defender, {});
+        runMoveEffect(move, attacker, defender, {}, onComplete);
         return;
     }
 
@@ -1002,7 +1023,6 @@ function executeSingleAction(attacker, defender, move, flinchedSet) {
         t.hp = Math.max(0, t.hp - dmg);
         totalDamage += dmg;
         printLog(`💥 ${t.name} subisce ${dmg} danni!` + (tMod>1?' 🔺 Superefficace!':tMod<1?' 🔻 Poco efficace...':''));
-        if (t.v.fungo === false && move.category === 'Fisico') { tryInflictStatus(t, 'Fungo'); }
         if (t.hp === 0) { t.isFainted = true; printLog(`💀 <b>${t.name} è andato KO!</b>`); }
     });
 
@@ -1013,10 +1033,11 @@ function executeSingleAction(attacker, defender, move, flinchedSet) {
         if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${attacker.name} è andato KO per il contraccolpo!`); }
     }
 
-    runMoveEffect(move, attacker, defender, { targets, totalDamage });
-
-    targets.forEach(t => { if (t.isFainted) handleFaint(t); });
-    if (attacker.isFainted) handleFaint(attacker);
+    runMoveEffect(move, attacker, defender, { targets, totalDamage }, () => {
+        targets.forEach(t => { if (t.isFainted) handleFaint(t); });
+        if (attacker.isFainted) handleFaint(attacker);
+        onComplete();
+    });
 }
 
 function handleFaint(poke) {
@@ -1027,12 +1048,22 @@ function handleFaint(poke) {
     if (idx !== -1) active[idx] = null;
 }
 
+// I danni da stato/clima a fine turno marcano isFainted=true ma non passano da handleFaint():
+// questa funzione va chiamata subito dopo per svuotare davvero lo slot di chi è appena
+// andato KO in quel modo, altrimenti la coda delle sostituzioni forzate non se ne accorge.
+function clearFaintedActiveSlots() {
+    [...gameState.p1Active, ...gameState.p2Active].forEach(p => {
+        if (p && p.isFainted) handleFaint(p);
+    });
+}
+
 /* =========================================================================
    EFFETTI DELLE MOSSE
    ========================================================================= */
-function runMoveEffect(move, attacker, defender, ctx) {
+function runMoveEffect(move, attacker, defender, ctx, onComplete) {
+    onComplete = onComplete || function(){};
     const eff = move.effect;
-    if (!eff) return;
+    if (!eff) { onComplete(); return; }
     const enemies = enemyActive(attacker.trainerId);
     const allies = sideActive(attacker.trainerId);
 
@@ -1091,16 +1122,25 @@ function runMoveEffect(move, attacker, defender, ctx) {
             if (attacker.v.moveLockout['Pausa Siga'] > 0) { printLog(`${attacker.name} non può ancora ripetere Pausa Siga!`); break; }
             const bench = (attacker.trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p !== attacker && p.activeSlot===null);
             if (bench.length === 0) { printLog(`Pausa Siga fallisce: nessun alleato disponibile!`); break; }
+
             setClima('Fumo', attacker);
             attacker.v.moveLockout['Pausa Siga'] = 2;
             const slot = attacker.activeSlot;
-            const returning = attacker;
-            performSwitch(attacker.trainerId, slot, bench[0]);
-            printLog(`🚬 ${attacker.name} esce per una pausa sigaretta, rientrerà a inizio prossimo turno.`);
-            setTimeout(()=>{}, 0);
-            (attacker.trainerId===1?gameState:gameState).pendingReturn = (gameState.pendingReturn||[]);
-            gameState.pendingReturn.push({ poke: returning, slot, trainerId: attacker.trainerId });
-            break;
+            const trainerId = attacker.trainerId;
+
+            // segna che questo Pokémon dovrà rientrare automaticamente a fine turno
+            gameState.pendingReturn = gameState.pendingReturn || [];
+            gameState.pendingReturn.push({ poke: attacker, slot, trainerId });
+
+            printLog(`🚬 ${attacker.name} esce per una pausa sigaretta! Rientrerà a fine turno.`);
+            showModal(`Chi mandi in campo al posto di ${attacker.name}?`, bench.map(b => ({
+                label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
+                onClick: () => {
+                    directSwitchIn(trainerId, slot, b);
+                    onComplete();
+                }
+            })));
+            return; // l'esecuzione riprende solo dopo la scelta del giocatore nel modale
         }
         case 'argomentazione':
             changeStage(attacker, {Def:1, SpD:1});
@@ -1158,7 +1198,7 @@ function runMoveEffect(move, attacker, defender, ctx) {
             attacker.status = { type:'Sleep', counter:0, sleepTurns:0 };
             printLog(`😴 ${attacker.name} recupera tutti gli HP ma si addormenta!`);
             break;
-        case 'multi_hit': break; // gestito con hit multipli sotto in executeSingleAction? -> gestiamo qui
+        case 'multi_hit': break; // gestito con hit multipli extra nel wrapper sotto
         case 'prenotata':
             if (defender) {
                 let choice = window.prompt(`${attacker.name} usa Prenotata su ${defender.name}. Quale mossa di ${defender.name} deve ripetere per 3 turni? (${defender.moves.map(m=>m.name).join(', ')})`, defender.moves[0].name);
@@ -1231,7 +1271,7 @@ function runMoveEffect(move, attacker, defender, ctx) {
             const bench = (defender.trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
             if (bench.length === 0) { printLog(`Subito a Casa! fallisce: nessun sostituto disponibile.`); break; }
             const slot = defender.activeSlot;
-            performSwitch(defender.trainerId, slot, bench[0]);
+            directSwitchIn(defender.trainerId, slot, bench[0]);
             break;
         }
         case 'bomba_maradona': break; // STAB forzato già gestito nei dati (stab:true)
@@ -1276,7 +1316,7 @@ function runMoveEffect(move, attacker, defender, ctx) {
         case 'serie_tv':
             enemyActive(attacker.trainerId).forEach(e => changeStage(e, {Spe:-1}));
             break;
-        case 'padel_hits': break; // multi-hit gestito sotto
+        case 'padel_hits': break; // multi-hit gestito nel wrapper sotto
         case 'heets':
             if (defender) tryInflictStatus(defender, 'Confuso');
             break;
@@ -1311,6 +1351,8 @@ function runMoveEffect(move, attacker, defender, ctx) {
             } else { printLog(`Puttana! non ha effetto: il bersaglio non è Femmina.`); }
             break;
     }
+
+    onComplete();
 }
 
 /* Gestione mosse "protect" con probabilità di fallimento crescente */
@@ -1342,38 +1384,44 @@ computeDamage = function(attacker, defender, move, opts) {
     return { dmg: Math.max(1, dmg), tMod: result.tMod };
 };
 
-/* Multi-hit (spara sushi 2-5, Colpo di Padel 2-4) gestiti come hit multipli extra dopo il colpo base */
+/* Multi-hit (spara sushi 2-5, Colpo di Padel 2-4) gestiti come hit multipli extra dopo il colpo base.
+   Il wrapper aspetta il completamento (sincrono o asincrono) dell'azione originale prima di
+   applicare i colpi aggiuntivi, e solo dopo richiama l'onComplete esterno. */
 const _origExecuteSingleAction = executeSingleAction;
-executeSingleAction = function(attacker, defender, move, flinchedSet) {
-    _origExecuteSingleAction(attacker, defender, move, flinchedSet);
-    if (!move.effect) return;
-    if ((move.effect === 'multi_hit' || move.effect === 'padel_hits') && defender && !defender.isFainted && !attacker.isFainted) {
-        const extraHits = move.effect === 'multi_hit' ? (Math.floor(Math.random()*4)+1) : (Math.floor(Math.random()*2)+1); // hit totali già 1 fatto sopra: aggiungiamo da 1 a 4 (tot 2-5) o 1-2 (tot 2-3~4)
-        for (let i=0;i<extraHits && !defender.isFainted;i++) {
-            const { dmg, tMod } = computeDamage(attacker, defender, move, { isCrit:false, numTargets:1 });
-            if (tMod === 0) break;
-            defender.hp = Math.max(0, defender.hp - dmg);
-            printLog(`💥 Colpo aggiuntivo: ${defender.name} subisce ${dmg} danni!`);
-            if (defender.hp === 0) { defender.isFainted = true; printLog(`💀 ${defender.name} è andato KO!`); handleFaint(defender); }
+executeSingleAction = function(attacker, defender, move, flinchedSet, onComplete) {
+    onComplete = onComplete || function(){};
+    _origExecuteSingleAction(attacker, defender, move, flinchedSet, () => {
+        if ((move.effect === 'multi_hit' || move.effect === 'padel_hits') && defender && !defender.isFainted && !attacker.isFainted) {
+            const extraHits = move.effect === 'multi_hit' ? (Math.floor(Math.random()*4)+1) : (Math.floor(Math.random()*2)+1); // hit totali già 1 fatto sopra: aggiungiamo da 1 a 4 (tot 2-5) o 1-2 (tot 2-3~4)
+            for (let i=0;i<extraHits && !defender.isFainted;i++) {
+                const { dmg, tMod } = computeDamage(attacker, defender, move, { isCrit:false, numTargets:1 });
+                if (tMod === 0) break;
+                defender.hp = Math.max(0, defender.hp - dmg);
+                printLog(`💥 Colpo aggiuntivo: ${defender.name} subisce ${dmg} danni!`);
+                if (defender.hp === 0) { defender.isFainted = true; printLog(`💀 ${defender.name} è andato KO!`); handleFaint(defender); }
+            }
         }
-    }
+        onComplete();
+    });
 };
 
 /* =========================================================================
-   FINE TURNO: status, campo, rientri
+   FINE TURNO: status, campo, rientri, switch forzati
    ========================================================================= */
 function endOfRoundEffects() {
-    // rientro Pausa Siga
+    // rientro Pausa Siga: Giana (o chi ha usato la mossa) riprende il proprio slot,
+    // rimandando in panchina il sostituto temporaneo (se ancora in campo e vivo).
     if (gameState.pendingReturn && gameState.pendingReturn.length) {
         gameState.pendingReturn.forEach(entry => {
+            if (entry.poke.isFainted) return;
             const active = entry.trainerId===1?gameState.p1Active:gameState.p2Active;
-            if (active[entry.slot] === null || active[entry.slot] === undefined) {
-                if (!entry.poke.isFainted) {
-                    active[entry.slot] = entry.poke;
-                    entry.poke.activeSlot = entry.slot;
-                    printLog(`🚬 ${entry.poke.name} rientra in campo dopo la pausa sigaretta!`);
-                }
-            }
+            const current = active[entry.slot];
+            if (current === entry.poke) return; // già al suo posto
+            if (current) current.resetOnSwitchOut();
+            active[entry.slot] = entry.poke;
+            entry.poke.activeSlot = entry.slot;
+            printLog(`🚬 ${entry.poke.name} rientra in campo dopo la pausa sigaretta!`);
+            triggerEntryAbility(entry.poke);
         });
         gameState.pendingReturn = [];
     }
@@ -1403,6 +1451,10 @@ function endOfRoundEffects() {
         });
     }
 
+    // svuota gli slot di chi è appena andato KO per stato/clima (i cicli sopra impostano
+    // solo isFainted, senza toccare l'array degli attivi)
+    clearFaintedActiveSlots();
+
     // riduzione contatori
     if (gameState.field.terrenoTurns > 0 && --gameState.field.terrenoTurns === 0) { printLog(`🌿 Il Terreno ${gameState.field.terreno} svanisce.`); gameState.field.terreno = null; }
     if (gameState.field.climaTurns > 0 && --gameState.field.climaTurns === 0) { printLog(`☁️ Il Clima ${gameState.field.clima} svanisce.`); gameState.field.clima = null; }
@@ -1413,31 +1465,68 @@ function endOfRoundEffects() {
         if (p.v.redirectTurns > 0) p.v.redirectTurns--;
     });
 
-    // pokemon KO: switch forzato
-    handleForcedSwitches();
+    // Pokemon KO: switch forzato per TUTTI gli slot vuoti rimasti (anche più di uno
+    // contemporaneamente, sullo stesso giocatore o su entrambi), uno alla volta in coda,
+    // così nessuna richiesta di sostituzione viene persa o sovrascritta.
+    handleForcedSwitches(finishRound);
 }
 
-function handleForcedSwitches() {
+function finishRound() {
+    roundActions = [];
+    currentTrainerTurn = 1;
+    currentSlotTurn = 0;
+    updateUI();
+    if (!checkWinner()) promptNextMove();
+}
+
+// Trova tutti gli slot vuoti (di entrambi i giocatori) che hanno ancora un sostituto
+// disponibile in panchina, e li mette in coda per essere risolti uno alla volta con
+// un modale ciascuno. Al termine della coda invoca onAllResolved.
+function handleForcedSwitches(onAllResolved) {
+    const queue = [];
     [1,2].forEach(trainerId => {
         const active = trainerId===1?gameState.p1Active:gameState.p2Active;
         for (let i=0;i<2;i++) {
             if (active[i] === null) {
                 const bench = (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
-                if (bench.length > 0) {
-                    gameState.phase = 'forced-switch';
-                    printLog(`⏳ Giocatore ${trainerId} deve mandare in campo un nuovo Pokémon nello slot ${i+1}.`);
-                    showModal(`Giocatore ${trainerId}: scegli il prossimo Pokémon (slot ${i+1})`, bench.map(b => ({
-                        label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
-                        onClick: () => performSwitch(trainerId, i, b)
-                    })));
-                    return;
-                }
+                if (bench.length > 0) queue.push({ trainerId, slot:i });
+                // se la panchina è vuota, lo slot resta vuoto: la squadra è stata spazzata
+                // e checkWinner() (chiamato in finishRound) se ne accorgerà.
             }
         }
     });
-    if (gameState.phase === 'forced-switch') gameState.phase = 'battle';
+
+    if (queue.length === 0) {
+        gameState.phase = 'battle';
+        if (onAllResolved) onAllResolved();
+        return;
+    }
+
+    gameState.phase = 'forced-switch';
+    processForcedSwitchQueue(queue, 0, onAllResolved);
 }
-function resumeAfterForcedSwitch() { handleForcedSwitches(); if (gameState.phase!=='forced-switch') updateUI(); }
+
+function processForcedSwitchQueue(queue, idx, onAllResolved) {
+    if (idx >= queue.length) {
+        gameState.phase = 'battle';
+        if (onAllResolved) onAllResolved();
+        return;
+    }
+    const { trainerId, slot } = queue[idx];
+    const active = trainerId===1?gameState.p1Active:gameState.p2Active;
+    if (active[slot] !== null) { processForcedSwitchQueue(queue, idx+1, onAllResolved); return; } // già riempito nel frattempo
+    const bench = (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
+    if (bench.length === 0) { processForcedSwitchQueue(queue, idx+1, onAllResolved); return; }
+
+    printLog(`⏳ Giocatore ${trainerId} deve mandare in campo un nuovo Pokémon nello slot ${slot+1}.`);
+    showModal(`Giocatore ${trainerId}: scegli il prossimo Pokémon (slot ${slot+1})`, bench.map(b => ({
+        label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
+        onClick: () => {
+            directSwitchIn(trainerId, slot, b);
+            processForcedSwitchQueue(queue, idx+1, onAllResolved);
+        }
+    })));
+}
 
 window.onload = () => { initRosterSelection(); };
 </script>
