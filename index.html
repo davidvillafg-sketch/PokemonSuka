@@ -416,10 +416,12 @@ class BattlePokemon {
             mustAttackTarget:null, // riferimento pokemon da colpire per forza (Scopiamo)
             redirectTurns:0,     // Svenimento: gli avversari devono colpire lui
             protectStreak:0,
-            damageReduction:0,   // % riduzione danno temporanea propria (es. Ringraziando Iddio gestito lato squadra, qui per casi individuali)
+            damageReduction:0,   // % riduzione danno temporanea propria
             hasActedOnce:false,
             lastMoveUsed:null,
-            frozenAtkNoLeave:null // Pescare/Croste: chi lo blocca in campo
+            frozenAtkNoLeave:null, // Pescare/Croste: chi lo blocca in campo
+            accuracyPenalty:0,   // Birra: penalità di precisione relativa (%)
+            giaLastDamagingRound:-Infinity // Ottimizzazione: ultimo round in cui ha usato una mossa offensiva
         };
     }
 
@@ -433,6 +435,8 @@ class BattlePokemon {
         this.v.redirectTurns = 0;
         this.v.protectStreak = 0;
         this.v.frozenAtkNoLeave = null;
+        this.v.accuracyPenalty = 0;
+        this.v.giaLastDamagingRound = -Infinity;
         this.status.counter = 0; // i contatori si azzerano, ma lo stato resta (glossario)
         this.types = [...this.originalTypes];
         this.gender = this.originalGender;
@@ -478,10 +482,6 @@ function abilityStageDelta(poke, stat) {
     if (poke.ability === "Passato Oscuro" && (gameState.field.clima==='Fumo' || gameState.field.terreno==='Alcol')) {
         if (stat==='Spe') d += 1;
     }
-    if (poke.ability === "Poppe A Casa!" ) {
-        const poppe = allActive().find(p=>p.name==='Poppe' && p.trainerId===poke.trainerId);
-        if (poppe && poke.name==='Poppe') { /* handled as flat mod below, non-stage */ }
-    }
     return d;
 }
 
@@ -493,22 +493,50 @@ function flatStatMultiplier(poke, stat) {
     return mult;
 }
 
-function getStat(poke, stat) {
-    if (stat === 'HP') return poke.hp;
-    // Ottimizzazione (Giana): ricalcolo incrociato
-    if (poke.ability === 'Ottimizzazione') {
-        const eff = (s) => Math.floor(poke.baseStats[s] * STAGE_MODS[clampStage(poke.stages[s] + abilityStageDelta(poke,s))]);
-        if (stat === 'SpA' && poke._computingSpA !== true) {
-            return eff('SpA') + Math.floor(0.5*eff('Atk')) + Math.floor(0.25*eff('Def')) + Math.floor(0.25*eff('SpD'));
-        }
-    }
-    const stage = clampStage(poke.stages[stat] + abilityStageDelta(poke, stat));
-    let val = Math.floor(poke.baseStats[stat] * STAGE_MODS[stage]);
-    val = Math.floor(val * flatStatMultiplier(poke, stat));
-    return Math.max(1, val);
+function clampStage(v){ return Math.max(-6, Math.min(6, v)); }
+
+// Calcola il valore "grezzo" di una statistica (senza bonus incrociati da Ottimizzazione),
+// applicando stage (o uno stage esplicito passato come override) + moltiplicatori flat.
+function effStatBase(poke, statKey, stageOverride) {
+    const rawStage = (stageOverride !== undefined) ? stageOverride : (poke.stages[statKey] + abilityStageDelta(poke, statKey));
+    const stage = clampStage(rawStage);
+    let val = Math.floor(poke.baseStats[statKey] * STAGE_MODS[stage]);
+    val = Math.floor(val * flatStatMultiplier(poke, statKey));
+    return val;
 }
 
-function clampStage(v){ return Math.max(-6, Math.min(6, v)); }
+function getStat(poke, stat) {
+    if (stat === 'HP') return poke.hp;
+    // Ottimizzazione (Giana), lato offensivo: SpA = SpA + 0.5*Atk + 0.25*Def + 0.25*SpD
+    if (poke.ability === 'Ottimizzazione' && stat === 'SpA') {
+        const spa = effStatBase(poke, 'SpA');
+        const atk = effStatBase(poke, 'Atk');
+        const def = effStatBase(poke, 'Def');
+        const spd = effStatBase(poke, 'SpD');
+        return Math.max(1, spa + Math.floor(0.5*atk) + Math.floor(0.25*def) + Math.floor(0.25*spd));
+    }
+    return Math.max(1, effStatBase(poke, stat));
+}
+
+// Statistica difensiva usata nel calcolo del danno: gestisce anche il bonus incrociato di
+// Ottimizzazione quando Giana SUBISCE una mossa fisica (Def) o speciale (SpD).
+// stageOverride: stage già calcolato dal chiamante (es. clampato a <=0 per crit/Brutto Colpo).
+function getDefensiveStat(defender, statKey, stageOverride) {
+    if (defender.ability === 'Ottimizzazione') {
+        const atk = effStatBase(defender, 'Atk');
+        const def = effStatBase(defender, 'Def');
+        const spa = effStatBase(defender, 'SpA');
+        const spd = effStatBase(defender, 'SpD');
+        if (statKey === 'SpD') {
+            const spdMain = effStatBase(defender, 'SpD', stageOverride);
+            return Math.max(1, spdMain + Math.floor(0.5*def) + Math.floor(0.25*atk) + Math.floor(0.25*spa));
+        } else { // Def
+            const defMain = effStatBase(defender, 'Def', stageOverride);
+            return Math.max(1, defMain + Math.floor(0.5*spd) + Math.floor(0.25*atk) + Math.floor(0.25*spa));
+        }
+    }
+    return Math.max(1, effStatBase(defender, statKey, stageOverride));
+}
 
 /* =========================================================================
    MODIFICHE DI STAGE (rispetta Innocenza / Doppiatore)
@@ -576,8 +604,10 @@ function typeMultiplier(moveType, defenderTypes) {
 function checkAccuracy(attacker, defender, move) {
     if (move.effect === 'bang') return true; // Bang! non evitabile
     let acc = (move.accuracy != null) ? move.accuracy : 100;
-    if (fieldHasAbility('fascino di pie') && attacker.gender === 'Femmina') acc -= 20;
-    if (gameState.field.terreno === 'Alcol' && move.type !== 'Alcol' && !attacker.types.includes('Alcol')) acc -= 10;
+    // Tutti i modificatori di precisione sono relativi (moltiplicativi), non sottrattivi.
+    if (fieldHasAbility('fascino di pie') && attacker.gender === 'Femmina') acc *= 0.8;
+    if (gameState.field.terreno === 'Alcol' && move.type !== 'Alcol' && !attacker.types.includes('Alcol')) acc *= 0.9;
+    if (attacker.v.accuracyPenalty) acc *= Math.max(0, 1 - attacker.v.accuracyPenalty/100);
     acc = Math.max(0, Math.min(100, acc));
     return Math.random() * 100 < acc;
 }
@@ -589,7 +619,7 @@ function computeDamage(attacker, defender, move, {isCrit=false, numTargets=1, fo
     let dStatKey = isSpec ? 'SpD' : 'Def';
     let dStage = defender.stages[dStatKey] + abilityStageDelta(defender, dStatKey);
     if (isCrit || bruttoColpo) dStage = Math.min(dStage, 0); // ignora boost difensivi positivi
-    let dStat = Math.max(1, Math.floor(defender.baseStats[dStatKey] * STAGE_MODS[clampStage(dStage)] * flatStatMultiplier(defender,dStatKey)));
+    let dStat = getDefensiveStat(defender, dStatKey, dStage);
 
     let base = Math.floor((22 * move.bp * aStat / dStat) / 50) + 2;
     let stab = (attacker.types.includes(move.type) || forceStab || move.stab || attacker.ability === 'goblin') ? 1.5 : 1.0;
@@ -781,7 +811,10 @@ function promptNextMove() {
     grid.innerHTML = "";
     activePoke.moves.forEach((move, mIdx) => {
         let btn = document.createElement("button");
-        const locked = activePoke.v.moveLockout[move.name] > 0;
+        const lockedByCounter = activePoke.v.moveLockout[move.name] > 0;
+        // Ottimizzazione: Giana non può usare due mosse offensive (Fisico/Speciale) in due turni consecutivi
+        const giaLocked = activePoke.ability === 'Ottimizzazione' && move.category !== 'Stato' && activePoke.v.giaLastDamagingRound === gameState.roundNumber;
+        const locked = lockedByCounter || giaLocked;
         btn.innerText = `${move.name} (${move.type})${locked?' 🔒':''}`;
         btn.disabled = !!locked;
         btn.onclick = () => onMoveChosen(activePoke, move);
@@ -820,9 +853,10 @@ function onMoveChosen(attacker, move) {
 }
 
 function queueAction(actor, move, target) {
-    // Registriamo anche slot/trainer originali del bersaglio: se nel frattempo (es. per
-    // Pausa Siga) qualcun altro prende il suo posto, la mossa dovrà colpire chi si trova
-    // ORA in quello slot, non l'oggetto Pokémon scelto al momento della selezione.
+    // Registriamo anche slot/trainer originali del bersaglio: se nel frattempo (per uno switch
+    // manuale avvenuto in fase di selezione, o per Pausa Siga durante l'esecuzione) qualcun altro
+    // prende il suo posto, la mossa dovrà colpire chi si trova ORA in quello slot, non l'oggetto
+    // Pokémon scelto al momento della selezione.
     const targetInfo = target ? { trainerId: target.trainerId, slot: target.activeSlot } : null;
     roundActions.push({ trainer: actor.trainerId, slot: actor.activeSlot, actor, move, target, targetInfo });
 }
@@ -877,7 +911,10 @@ function directSwitchIn(trainerId, slot, newPoke) {
 
 // Usato SOLO quando il cambio è la mossa scelta da un giocatore durante la fase
 // di selezione delle azioni (bottone "Cambia Pokémon"): in quel caso, dopo il
-// cambio si deve proseguire con la selezione della prossima azione.
+// cambio si deve proseguire con la selezione della prossima azione. Poiché il
+// target delle mosse già in coda viene risolto DINAMICAMENTE in base allo slot
+// (vedi processQueuedAction), un eventuale bersaglio già scelto da un avversario
+// per lo slot appena liberato seguirà automaticamente il nuovo occupante.
 function performSwitch(trainerId, slot, newPoke) {
     directSwitchIn(trainerId, slot, newPoke);
     advanceActor();
@@ -923,7 +960,19 @@ function processQueuedAction(idx, flinched) {
     if (action.actor.isFainted) { proceed(); return; }
     if (flinched.has(action.actor)) { printLog(`😵 ${action.actor.name} tentenna e non può muoversi!`); proceed(); return; }
 
-    executeSingleAction(action.actor, action.target, action.move, flinched, () => {
+    // Risolve il bersaglio "live": se lo slot originale ora è occupato da un Pokémon diverso
+    // (switch manuale o Pausa Siga avvenuti dopo la selezione dell'azione), la mossa segue
+    // il nuovo occupante. Se invece lo slot è vuoto (il bersaglio è andato KO e non è ancora
+    // stato sostituito), manteniamo l'oggetto originale così la logica più sotto in
+    // executeSingleAction può correttamente reindirizzare verso un eventuale alleato.
+    let liveTarget = action.target;
+    if (action.targetInfo) {
+        const arr = action.targetInfo.trainerId === 1 ? gameState.p1Active : gameState.p2Active;
+        const current = arr[action.targetInfo.slot];
+        if (current) liveTarget = current;
+    }
+
+    executeSingleAction(action.actor, liveTarget, action.move, flinched, () => {
         if (checkWinner()) return;
         proceed();
     });
@@ -961,6 +1010,13 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         }
     }
 
+    // Ottimizzazione: blocco di sicurezza nel caso una mossa offensiva venga forzata
+    // (es. ripetizione forzata) nel turno immediatamente successivo a un'altra mossa offensiva.
+    if (attacker.ability === 'Ottimizzazione' && move.category !== 'Stato' && attacker.v.giaLastDamagingRound === gameState.roundNumber - 1) {
+        printLog(`🚫 ${attacker.name} non può usare mosse che infliggono danno per due turni consecutivi!`);
+        onComplete(); return;
+    }
+
     attacker.v.protectedThisTurn = false;
     attacker.v.protectedFromMalesThisTurn = false;
     attacker.v.lastMoveUsed = move.name;
@@ -985,7 +1041,14 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
 
     printLog(`▶️ <b>${attacker.name}</b> usa <b>${move.name}</b>!`);
 
-    if (defender && move.target === 'Single Target' && isProtected(defender, attacker, move)) {
+    if (attacker.ability === 'Ottimizzazione' && move.category !== 'Stato') {
+        attacker.v.giaLastDamagingRound = gameState.roundNumber;
+    }
+
+    // Cannata!!! ignora qualsiasi protezione se il bersaglio ha l'abilità Scopiamo
+    const cannataBypass = move.effect === 'cannata' && defender && defender.ability === 'Scopiamo';
+
+    if (defender && move.target === 'Single Target' && !cannataBypass && isProtected(defender, attacker, move)) {
         printLog(`🛡️ ${defender.name} si protegge dall'attacco!`);
         onComplete(); return;
     }
@@ -998,6 +1061,20 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
             runMoveEffect(move, attacker, defender, { failed:true }, onComplete);
             return;
         }
+    }
+
+    // Cannata!!! diventa OHKO contro pokemon con abilità Scopiamo (già garantito di andare a
+    // segno dal controllo di accuracy sopra, e di ignorare Protect dal controllo sopra).
+    if (move.effect === 'cannata' && defender && defender.ability === 'Scopiamo') {
+        printLog(`🎤 Cannata!!! trapassa ogni protezione e mette KO ${defender.name} all'istante (Scopiamo)!`);
+        defender.hp = 0; defender.isFainted = true;
+        printLog(`💀 <b>${defender.name} è andato KO!</b>`);
+        runMoveEffect(move, attacker, defender, { targets:[defender], totalDamage: defender.maxHp }, () => {
+            if (defender.isFainted) handleFaint(defender);
+            if (attacker.isFainted) handleFaint(attacker);
+            onComplete();
+        });
+        return;
     }
 
     if (move.category === 'Stato' && move.bp === 0) {
@@ -1124,7 +1201,6 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             if (bench.length === 0) { printLog(`Pausa Siga fallisce: nessun alleato disponibile!`); break; }
 
             setClima('Fumo', attacker);
-            attacker.v.moveLockout['Pausa Siga'] = 2;
             const slot = attacker.activeSlot;
             const trainerId = attacker.trainerId;
 
@@ -1137,6 +1213,10 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
                 label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
                 onClick: () => {
                     directSwitchIn(trainerId, slot, b);
+                    // Il lockout va impostato DOPO lo switch: resetOnSwitchOut() (chiamato da
+                    // directSwitchIn su chi esce) azzera v.moveLockout, quindi se lo impostassimo
+                    // prima verrebbe cancellato immediatamente.
+                    attacker.v.moveLockout['Pausa Siga'] = 2;
                     onComplete();
                 }
             })));
@@ -1210,7 +1290,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
         case 'heal_full':
             healPoke(attacker, 1.0);
             break;
-        case 'cannata': break; // priorità/OHKO gestiti in movePriority/computeDamage extra
+        case 'cannata': break; // OHKO/priorità/bypass-protect gestiti sopra in executeSingleAction/movePriority
         case 'altini_marito':
             if (defender && defender.gender === 'Femmina') { printLog(`Altini Marito fallisce sui Pokemon Femmina.`); break; }
             if (defender && defender.name === 'Altini') changeStage(defender, {Atk:1,SpA:1,Def:1,SpD:1});
@@ -1379,19 +1459,21 @@ computeDamage = function(attacker, defender, move, opts) {
         // BP effettivo già fisso a 40 nei dati; applichiamo bonus proporzionale come moltiplicatore equivalente
         dmg = Math.floor(dmg * (40 + 20*otherMales) / 40);
     }
-    if (defender.v.atkHalved && (move.category==='Fisico')) { /* si applica all'attaccante quando attacca lui, gestito sotto */ }
     if (attacker.v.atkHalved) dmg = Math.floor(dmg * 0.5);
     return { dmg: Math.max(1, dmg), tMod: result.tMod };
 };
 
 /* Multi-hit (spara sushi 2-5, Colpo di Padel 2-4) gestiti come hit multipli extra dopo il colpo base.
    Il wrapper aspetta il completamento (sincrono o asincrono) dell'azione originale prima di
-   applicare i colpi aggiuntivi, e solo dopo richiama l'onComplete esterno. */
+   applicare i colpi aggiuntivi, e solo dopo richiama l'onComplete esterno. La protezione del
+   bersaglio (calcolata PRIMA che l'azione originale venga eseguita, così come farebbe per il
+   primo colpo) blocca anche tutti i colpi aggiuntivi, non solo il primo. */
 const _origExecuteSingleAction = executeSingleAction;
 executeSingleAction = function(attacker, defender, move, flinchedSet, onComplete) {
     onComplete = onComplete || function(){};
+    const wasProtected = !!(defender && move.target === 'Single Target' && isProtected(defender, attacker, move));
     _origExecuteSingleAction(attacker, defender, move, flinchedSet, () => {
-        if ((move.effect === 'multi_hit' || move.effect === 'padel_hits') && defender && !defender.isFainted && !attacker.isFainted) {
+        if (!wasProtected && (move.effect === 'multi_hit' || move.effect === 'padel_hits') && defender && !defender.isFainted && !attacker.isFainted) {
             const extraHits = move.effect === 'multi_hit' ? (Math.floor(Math.random()*4)+1) : (Math.floor(Math.random()*2)+1); // hit totali già 1 fatto sopra: aggiungiamo da 1 a 4 (tot 2-5) o 1-2 (tot 2-3~4)
             for (let i=0;i<extraHits && !defender.isFainted;i++) {
                 const { dmg, tMod } = computeDamage(attacker, defender, move, { isCrit:false, numTargets:1 });
