@@ -184,7 +184,6 @@ const EXCLUSIVE_STATUSES = ['Burn','Sleep','Frozen','Iperavvelenato'];
    ========================================================================= */
 let gameState = {
     phase:'selection',
-    mode:null,
     currentPlayerSelecting:1,
     p1TeamTemplates:[], p2TeamTemplates:[],
     p1Team:[], p2Team:[],
@@ -199,28 +198,6 @@ let gameState = {
 /* =========================================================================
    SELEZIONE SQUADRA
    ========================================================================= */
-function isBotMode() {
-    return gameState.mode === 'bot';
-}
-
-function trainerLabel(trainerId) {
-    return trainerId === 2 && isBotMode() ? 'Bot' : `Giocatore ${trainerId}`;
-}
-
-function selectGameMode(mode) {
-    gameState.mode = mode;
-    gameState.currentPlayerSelecting = 1;
-    selectedIndices = [];
-    document.getElementById("mode-screen").classList.add("hidden");
-    document.getElementById("battle-screen").classList.add("hidden");
-    document.getElementById("select-screen").classList.remove("hidden");
-    document.getElementById("selector-title").innerText = "Turno: Giocatore 1 (Selezionati: 0/4)";
-    document.getElementById("confirm-selection").innerText = "Conferma Squadra Giocatore 1";
-    document.getElementById("confirm-selection").disabled = true;
-    document.getElementById("p2-name-label").innerText = "Giocatore 2";
-    initRosterSelection();
-}
-
 function initRosterSelection() {
     const grid = document.getElementById("roster-grid");
     grid.innerHTML = "";
@@ -257,19 +234,14 @@ function confirmPlayerSelection() {
         gameState.p1TeamTemplates = [...selectedIndices];
         selectedIndices = [];
         document.querySelectorAll(".poke-card").forEach(c => c.classList.remove("selected"));
-        if (isBotMode()) {
-            gameState.p2TeamTemplates = chooseBotTeam(gameState.p1TeamTemplates);
-            startBattle();
-        } else {
-            gameState.currentPlayerSelecting = 2;
-            document.getElementById("selector-title").innerText = "Turno: Giocatore 2 (Selezionati: 0/4)";
-            document.getElementById("confirm-selection").innerText = "Avvia Battaglia";
-            document.getElementById("confirm-selection").disabled = true;
-            // Popup di passaggio dispositivo tra la selezione di P1 e quella di P2
-            showPassDevice(2, () => {
-                initRosterSelection();
-            });
-        }
+        gameState.currentPlayerSelecting = 2;
+        document.getElementById("selector-title").innerText = "Turno: Giocatore 2 (Selezionati: 0/4)";
+        document.getElementById("confirm-selection").innerText = "Avvia Battaglia";
+        document.getElementById("confirm-selection").disabled = true;
+        // Popup di passaggio dispositivo tra la selezione di P1 e quella di P2
+        showPassDevice(2, () => {
+            initRosterSelection();
+        });
     } else {
         gameState.p2TeamTemplates = [...selectedIndices];
         startBattle();
@@ -500,71 +472,6 @@ function typeMultiplier(moveType, defenderTypes) {
     return mult;
 }
 
-// Selezione deterministica della squadra del bot. La valutazione considera
-// statistiche, velocità, STAB, copertura super efficace e mosse di supporto
-// disponibili contro la squadra scelta dal giocatore.
-function chooseBotTeam(opponentIndices) {
-    const opponents = opponentIndices.map(idx => RAW_POKEMON_DATA[idx]);
-    const scored = RAW_POKEMON_DATA.map((poke, idx) => {
-        const hp = poke.base.HP;
-        const physical = poke.base.Atk;
-        const special = poke.base.SpA;
-        const bulk = poke.base.HP + poke.base.Def * 0.55 + poke.base.SpD * 0.55;
-        const speed = poke.base.Spe * 0.35;
-        let matchup = 0;
-        let superEffectiveOptions = 0;
-
-        opponents.forEach(opponent => {
-            let best = 0;
-            poke.moves.forEach(move => {
-                if (!move.bp) return;
-                const attack = move.category === 'Speciale' ? special : physical;
-                const stab = (poke.types.includes(move.type) || move.stab) ? 1.5 : 1;
-                const multiplier = typeMultiplier(move.type, opponent.types);
-                const accuracy = (move.accuracy || 100) / 100;
-                const value = move.bp * attack * stab * multiplier * accuracy;
-                best = Math.max(best, value);
-                if (multiplier > 1) superEffectiveOptions++;
-            });
-            matchup += best;
-        });
-
-        const support = poke.moves.reduce((sum, move) => {
-            if (move.bp !== 0) return sum;
-            if (['protect_and_terrain_chill','protect_self','accudire','riposino',
-                'birra_heal','heal_full','ordine_glovo','ringraziando_iddio',
-                'posing','shadow_boxing','lavoro_gruppo'].includes(move.effect)) return sum + 18;
-            if (['hyper_poison','hyper_poison_single','burn_status',
-                'burn_status_single','fungo_status','da_status','medusa_effect',
-                'stat_down_atk_spa','cucciolone','serie_tv'].includes(move.effect)) return sum + 12;
-            return sum;
-        }, 0);
-
-        return {
-            idx,
-            score: bulk * 0.7 + hp * 0.3 + speed + matchup * 0.018 +
-                superEffectiveOptions * 7 + support
-        };
-    });
-
-    const selected = [];
-    while (selected.length < 4 && selected.length < scored.length) {
-        const next = scored
-            .filter(entry => !selected.includes(entry.idx))
-            .map(entry => {
-                const poke = RAW_POKEMON_DATA[entry.idx];
-                const newTypes = poke.types.filter(type =>
-                    !selected.some(idx => RAW_POKEMON_DATA[idx].types.includes(type))
-                ).length;
-                return { ...entry, adjustedScore: entry.score + newTypes * 9 };
-            })
-            .sort((a, b) => b.adjustedScore - a.adjustedScore || a.idx - b.idx)[0];
-        if (!next) break;
-        selected.push(next.idx);
-    }
-    return selected;
-}
-
 function checkAccuracy(attacker, defender, move) {
     if (move.effect === 'bang') return true; // Bang! non evitabile
     let acc = (move.accuracy != null) ? move.accuracy : 100;
@@ -618,8 +525,6 @@ function computeDamage(attacker, defender, move, {isCrit=false, numTargets=1, fo
 function startBattle() {
     document.getElementById("select-screen").classList.add("hidden");
     document.getElementById("battle-screen").classList.remove("hidden");
-    document.getElementById("p1-name-label").innerText = "Giocatore 1";
-    document.getElementById("p2-name-label").innerText = isBotMode() ? "Bot" : "Giocatore 2";
 
     gameState.p1Team = gameState.p1TeamTemplates.map(idx => new BattlePokemon(RAW_POKEMON_DATA[idx], 1));
     gameState.p2Team = gameState.p2TeamTemplates.map(idx => new BattlePokemon(RAW_POKEMON_DATA[idx], 2));
@@ -629,15 +534,11 @@ function startBattle() {
     gameState.p1Active.forEach((p,i)=>p.activeSlot=i);
     gameState.p2Active.forEach((p,i)=>p.activeSlot=i);
 
-    printLog(`⚔️ La battaglia VGC ha inizio tra Giocatore 1 e ${trainerLabel(2)}!`);
+    printLog("⚔️ La battaglia VGC ha inizio tra Giocatore 1 e Giocatore 2!");
     allActive().forEach(p => triggerEntryAbility(p));
     updateUI();
-    if (isBotMode()) {
-        promptNextMove();
-    } else {
-        // Popup di passaggio dispositivo prima del primo turno di Giocatore 1
-        showPassDevice(1, () => promptNextMove());
-    }
+    // Popup di passaggio dispositivo prima del primo turno di Giocatore 1
+    showPassDevice(1, () => promptNextMove());
 }
 
 function triggerEntryAbility(poke) {
@@ -844,7 +745,6 @@ function showPlayAgainPopup() {
 function resetGame() {
     gameState = {
         phase:'selection',
-        mode:null,
         currentPlayerSelecting:1,
         p1TeamTemplates:[], p2TeamTemplates:[],
         p1Team:[], p2Team:[],
@@ -862,11 +762,12 @@ function resetGame() {
 
     document.getElementById("log").innerHTML = "";
     document.getElementById("battle-screen").classList.add("hidden");
-    document.getElementById("select-screen").classList.add("hidden");
-    document.getElementById("mode-screen").classList.remove("hidden");
-    document.getElementById("p1-name-label").innerText = "Giocatore 1";
-    document.getElementById("p2-name-label").innerText = "Giocatore 2";
+    document.getElementById("select-screen").classList.remove("hidden");
+    document.getElementById("selector-title").innerText = "Turno: Giocatore 1 (Selezionati: 0/4)";
+    document.getElementById("confirm-selection").innerText = "Conferma Squadra Giocatore 1";
+    document.getElementById("confirm-selection").disabled = true;
     restoreControlsArea();
+    initRosterSelection();
 }
 
 /* =========================================================================
@@ -878,220 +779,11 @@ let roundActions = [];
 
 function livingTeam(trainerId){ return (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted); }
 
-function botBench() {
-    return gameState.p2Team.filter(p => !p.isFainted && p.activeSlot === null);
-}
-
-function botTargetCandidates(attacker, move) {
-    if (move.target !== 'Single Target') return [];
-    const enemies = enemyActive(attacker.trainerId);
-    const allies = sideActive(attacker.trainerId).filter(p => p !== attacker);
-    if (['Grattini','Altini Marito','Punto Chill'].includes(move.name)) {
-        return [...allies, ...enemies, attacker];
-    }
-    if (attacker.v.mustAttackTarget && !attacker.v.mustAttackTarget.isFainted) {
-        return [attacker.v.mustAttackTarget];
-    }
-    return enemies;
-}
-
-function botDamageEstimate(attacker, defender, move, numTargets=1) {
-    if (!defender || !move.bp || move.category === 'Stato') return { dmg:0, tMod:1 };
-    const result = computeDamage(attacker, defender, move, { numTargets });
-    if (!result || typeof result !== 'object') return { dmg:0, tMod:1 };
-    return result;
-}
-
-function botTargetScore(attacker, defender, move, numTargets=1) {
-    if (!defender || defender.isFainted) return -100000;
-    let score = 0;
-    if (move.bp && move.category !== 'Stato') {
-        const result = botDamageEstimate(attacker, defender, move, numTargets);
-        const accuracy = (move.accuracy || 100) / 100;
-        score += result.dmg * accuracy;
-        if (result.tMod > 1) score += 45 * result.tMod;
-        if (result.tMod === 0) score -= 10000;
-        if (result.dmg >= defender.hp) score += 1000;
-        if (move.effect === 'recoil_33') score -= Math.floor(result.dmg * 0.15);
-    } else {
-        if (defender.trainerId !== attacker.trainerId) {
-            if (['stat_down_atk_spa','rutto_effect','cucciolone','depilazione_laser',
-                'serie_tv','puttana','altini_marito','punto_chill'].includes(move.effect)) {
-                score += 34;
-            }
-            if (['hyper_poison_single','burn_status_single','fungo_status','nuvole',
-                'heets','whisky','medusa_effect','cuscino_peloso'].includes(move.effect)) {
-                score += defender.status.type || defender.v.fungo || defender.v.confused ? 4 : 42;
-            }
-            if (move.effect === 'cannata' && defender.hp > 0) score += 900;
-        } else {
-            if (move.effect === 'grattini') score += defender.stages.Def < 2 ? 28 : 3;
-            if (move.effect === 'punto_chill') score += 20;
-            if (move.effect === 'cuscino_peloso') score += defender.hp < defender.maxHp * 0.7 ? 22 : 2;
-        }
-    }
-    return score;
-}
-
-function botMoveScore(attacker, move) {
-    const enemies = enemyActive(attacker.trainerId);
-    const allies = sideActive(attacker.trainerId).filter(p => p !== attacker);
-    if (move.target === 'Single Target') {
-        const targets = botTargetCandidates(attacker, move);
-        if (!targets.length) return -10000;
-        return Math.max(...targets.map(target => botTargetScore(attacker, target, move, 1)));
-    }
-    if (move.target === 'All Opponents') {
-        if (!enemies.length) return -10000;
-        return enemies.reduce((total, target) =>
-            total + botTargetScore(attacker, target, move, enemies.length), 0);
-    }
-    if (move.target === 'All Pokemon') {
-        return allActive().filter(target => target !== attacker)
-            .reduce((total, target) => total + botTargetScore(attacker, target, move, allActive().length), 0);
-    }
-    if (move.target === 'All Allies') {
-        return allies.reduce((total, target) => total + botTargetScore(attacker, target, move, allies.length), 0) + 18;
-    }
-
-    const missingHp = attacker.maxHp - attacker.hp;
-    const effectScores = {
-        protect_and_terrain_chill: attacker.hp < attacker.maxHp * 0.55 ? 72 : 26,
-        protect_self: attacker.hp < attacker.maxHp * 0.55 ? 68 : 24,
-        rifiuto: attacker.hp < attacker.maxHp * 0.55 ? 68 : 24,
-        birra_heal: missingHp > attacker.maxHp * 0.3 && !attacker.v.da ? 82 : -20,
-        heal_full: missingHp > attacker.maxHp * 0.3 && !attacker.v.da ? 82 : -20,
-        riposino: missingHp > attacker.maxHp * 0.4 && !attacker.v.da ? 70 : -25,
-        accudire: allies.some(a => a.hp < a.maxHp * 0.65) ? 58 : 4,
-        ordine_glovo: attacker.hp < attacker.maxHp * 0.7 ? 62 : 8,
-        posing: attacker.stages.Atk < 2 ? 46 : 3,
-        shadow_boxing: attacker.stages.Atk < 2 ? 42 : 3,
-        drift_effect: attacker.stages.Spe < 3 ? 38 : -25,
-        svenimento: 34,
-        anguria_drum: attacker.stages.Atk < 6 && attacker.hp > attacker.maxHp * 0.55 ? 76 : -18,
-        ringraziando_iddio: 44,
-        lavoro_gruppo: allies.some(a => a.types.includes('Ingegno')) ? 48 : 12,
-        fermii_flinch: attacker.v.hadFirstMoveUsed ? -1000 : 86,
-        pausa_siga: botBench().length ? (attacker.hp < attacker.maxHp * 0.65 ? 54 : 14) : -1000,
-        prenotata: enemies.some(e => e.moves.length) ? 38 : -1000,
-        scoordinato: -18
-    };
-    let score = effectScores[move.effect] || 8;
-    if (move.accuracy != null) score *= move.accuracy / 100;
-    return score;
-}
-
-function botLegalMoves(poke) {
-    return poke.moves.filter(move => {
-        if (poke.v.moveLockout[move.name] > 0) return false;
-        if (poke.ability === 'Ottimizzazione' && move.category !== 'Stato' &&
-            poke.v.giaLastDamagingRound === gameState.roundNumber) return false;
-        return true;
-    });
-}
-
-function botBestDamageAgainst(attacker, defender) {
-    return attacker.moves.reduce((best, move) => {
-        if (!move.bp || move.category === 'Stato') return best;
-        return Math.max(best, botDamageEstimate(attacker, defender, move).dmg);
-    }, 0);
-}
-
-function botBestSwitchFor(slot, reservedSwitches) {
-    const enemies = enemyActive(2);
-    const available = botBench().filter(p => !reservedSwitches.has(p));
-    return available
-        .map(candidate => {
-            const offense = enemies.reduce((sum, enemy) => sum + botBestDamageAgainst(candidate, enemy), 0);
-            const defense = enemies.reduce((sum, enemy) => sum + botBestDamageAgainst(enemy, candidate), 0);
-            return { candidate, score: offense * 1.2 - defense + candidate.hp * 0.2 };
-        })
-        .sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name))[0]?.candidate || null;
-}
-
-function botShouldSwitch(poke, reservedSwitches) {
-    if (!poke || poke.v.trapped || !botBench().some(p => !reservedSwitches.has(p))) return false;
-    const replacement = botBestSwitchFor(poke.activeSlot, reservedSwitches);
-    if (!replacement) return false;
-    if (poke.hp <= poke.maxHp * 0.25) return true;
-    const incoming = enemyActive(2).reduce((sum, enemy) => sum + botBestDamageAgainst(enemy, poke), 0);
-    const replacementIncoming = enemyActive(2).reduce((sum, enemy) => sum + botBestDamageAgainst(enemy, replacement), 0);
-    const currentOffense = enemyActive(2).reduce((sum, enemy) => sum + botBestDamageAgainst(poke, enemy), 0);
-    const replacementOffense = enemyActive(2).reduce((sum, enemy) => sum + botBestDamageAgainst(replacement, enemy), 0);
-    return incoming >= poke.hp * 0.65 &&
-        (replacementOffense > currentOffense * 1.2 || replacementIncoming < incoming * 0.65);
-}
-
-function botChooseAction(poke, reservedSwitches) {
-    if (botShouldSwitch(poke, reservedSwitches)) {
-        const newPoke = botBestSwitchFor(poke.activeSlot, reservedSwitches);
-        if (newPoke) return { type:'switch', newPoke };
-    }
-
-    const legalMoves = botLegalMoves(poke);
-    if (!legalMoves.length) {
-        return { type:'move', move:{ name:"Attesa", type:"Puro", category:"Stato", bp:0, target:"Self" }, target:poke };
-    }
-    const move = legalMoves
-        .map((candidate, idx) => ({ candidate, score: botMoveScore(poke, candidate), idx }))
-        .sort((a, b) => b.score - a.score || a.idx - b.idx)[0].candidate;
-    const targets = botTargetCandidates(poke, move);
-    const target = move.target === 'Single Target'
-        ? targets.sort((a, b) => botTargetScore(poke, b, move) - botTargetScore(poke, a, move))[0] || null
-        : defaultTargetFor(poke, move);
-    return { type:'move', move, target };
-}
-
-function executeBotTurn() {
-    if (checkWinner()) return;
-    restoreControlsArea();
-    document.getElementById("current-actor-label").innerText = "Il Bot sta scegliendo...";
-    document.getElementById("moves-grid").innerHTML = "";
-    const reservedSwitches = new Set();
-
-    for (let slot = 0; slot < 2; slot++) {
-        const activePoke = gameState.p2Active[slot];
-        if (!activePoke || activePoke.isFainted) continue;
-
-        if (activePoke.v.forcedMove && activePoke.v.forcedMove.turnsLeft > 0) {
-            const forcedMove = activePoke.moves.find(m => m.name === activePoke.v.forcedMove.name);
-            if (forcedMove) {
-                roundActions.push({
-                    type:'move', trainer:2, slot, actor:activePoke,
-                    move:forcedMove, target:defaultTargetFor(activePoke, forcedMove)
-                });
-                activePoke.v.forcedMove.turnsLeft--;
-                continue;
-            }
-        }
-
-        const action = botChooseAction(activePoke, reservedSwitches);
-        if (action.type === 'switch') {
-            roundActions.push({
-                type:'switch', trainer:2, slot, actor:activePoke, newPoke:action.newPoke
-            });
-            reservedSwitches.add(action.newPoke);
-        } else {
-            const targetInfo = action.target
-                ? { trainerId: action.target.trainerId, slot: action.target.activeSlot }
-                : null;
-            roundActions.push({
-                type:'move', trainer:2, slot, actor:activePoke,
-                move:action.move, target:action.target, targetInfo
-            });
-        }
-    }
-
-    currentTrainerTurn = 1;
-    currentSlotTurn = 0;
-    executeTurnQueue();
-}
-
 function checkWinner() {
     let p1Alive = livingTeam(1).length>0;
     let p2Alive = livingTeam(2).length>0;
     if (!p1Alive || !p2Alive) {
-        printLog(`🏆 <b>FINE PARTITA! Vince ${trainerLabel(p1Alive?1:2)}!</b>`);
+        printLog(`🏆 <b>FINE PARTITA! Vince il Giocatore ${p1Alive?1:2}!</b>`);
         showEndGameButton();
         return true;
     }
@@ -1185,12 +877,8 @@ function advanceActor() {
         currentSlotTurn = 0;
         if (currentTrainerTurn === 1) {
             currentTrainerTurn = 2;
-            if (isBotMode()) {
-                executeBotTurn();
-            } else {
-                // Popup di passaggio dispositivo prima che Giocatore 2 selezioni le proprie azioni
-                showPassDevice(2, () => promptNextMove());
-            }
+            // Popup di passaggio dispositivo prima che Giocatore 2 selezioni le proprie azioni
+            showPassDevice(2, () => promptNextMove());
         }
         else { currentTrainerTurn = 1; executeTurnQueue(); }
     } else {
@@ -1570,18 +1258,6 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             gameState.pendingReturn.push({ poke: attacker, slot, trainerId });
 
             printLog(`🚬 ${pname(attacker)} esce per una pausa sigaretta! Rientrerà a fine turno.`);
-            if (isBotMode() && trainerId === 2) {
-                const replacement = botBestSwitchFor(slot, new Set());
-                if (!replacement) {
-                    printLog(`Pausa Siga fallisce: il Bot non ha un sostituto conveniente.`);
-                    onComplete();
-                    return;
-                }
-                directSwitchIn(trainerId, slot, replacement);
-                attacker.v.moveLockout['Pausa Siga'] = 2;
-                onComplete();
-                return;
-            }
             showModal(`Chi mandi in campo al posto di ${attacker.name}?`, bench.map(b => ({
                 label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
                 onClick: () => {
@@ -1654,17 +1330,8 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
         case 'multi_hit': break; // gestito con hit multipli extra nel wrapper sotto
         case 'prenotata':
             if (defender) {
-                let mv;
-                if (isBotMode() && attacker.trainerId === 2) {
-                    mv = [...defender.moves].sort((a, b) =>
-                        (b.bp || 0) - (a.bp || 0) ||
-                        (b.priority || 0) - (a.priority || 0) ||
-                        a.name.localeCompare(b.name)
-                    )[0];
-                } else {
-                    let choice = window.prompt(`${attacker.name} usa Prenotata su ${defender.name}. Quale mossa di ${defender.name} deve ripetere per 3 turni? (${defender.moves.map(m=>m.name).join(', ')})`, defender.moves[0].name);
-                    mv = defender.moves.find(m=>m.name===choice) || defender.moves[0];
-                }
+                let choice = window.prompt(`${attacker.name} usa Prenotata su ${defender.name}. Quale mossa di ${defender.name} deve ripetere per 3 turni? (${defender.moves.map(m=>m.name).join(', ')})`, defender.moves[0].name);
+                let mv = defender.moves.find(m=>m.name===choice) || defender.moves[0];
                 defender.v.forcedMove = { name: mv.name, turnsLeft: 3 };
                 printLog(`🔒 ${pname(defender)} è costretto a ripetere ${mv.name} per 3 turni!`);
             }
@@ -1936,12 +1603,8 @@ function finishRound() {
     currentSlotTurn = 0;
     updateUI();
     if (!checkWinner()) {
-        if (isBotMode()) {
-            promptNextMove();
-        } else {
-            // Popup di passaggio dispositivo a inizio di ogni nuovo turno
-            showPassDevice(1, () => promptNextMove());
-        }
+        // Popup di passaggio dispositivo a inizio di ogni nuovo turno
+        showPassDevice(1, () => promptNextMove());
     }
 }
 
@@ -1984,17 +1647,7 @@ function processForcedSwitchQueue(queue, idx, onAllResolved) {
     const bench = (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
     if (bench.length === 0) { processForcedSwitchQueue(queue, idx+1, onAllResolved); return; }
 
-    if (isBotMode() && trainerId === 2) {
-        const replacement = botBestSwitchFor(slot, new Set());
-        if (replacement) {
-            printLog(`⏳ Il Bot manda in campo ${replacement.name} nello slot ${slot+1}.`);
-            directSwitchIn(trainerId, slot, replacement);
-        }
-        processForcedSwitchQueue(queue, idx+1, onAllResolved);
-        return;
-    }
-
-    printLog(`⏳ ${trainerLabel(trainerId)} deve mandare in campo un nuovo Pokémon nello slot ${slot+1}.`);
+    printLog(`⏳ Giocatore ${trainerId} deve mandare in campo un nuovo Pokémon nello slot ${slot+1}.`);
     showModal(`Giocatore ${trainerId}: scegli il prossimo Pokémon (slot ${slot+1})`, bench.map(b => ({
         label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
         onClick: () => {
