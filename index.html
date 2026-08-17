@@ -463,12 +463,12 @@ function fieldHasAbility(abilityName) { return allActive().some(p=>p.ability===a
 function setTerreno(type, poke) {
     gameState.field.terreno = type;
     gameState.field.terrenoTurns = 5;
-    printLog(`🌿 ${poke.name} imposta il Terreno ${type}!`);
+    printLog(`🌿 ${pname(poke)} imposta il Terreno ${type}!`);
 }
 function setClima(type, poke) {
     gameState.field.clima = type;
     gameState.field.climaTurns = 5;
-    printLog(`☁️ ${poke.name} imposta il Clima ${type}!`);
+    printLog(`☁️ ${pname(poke)} imposta il Clima ${type}!`);
 }
 
 /* =========================================================================
@@ -561,7 +561,7 @@ function changeStage(target, deltas, opts={}) {
         let d = deltas[stat] * (doubled ? 2 : 1);
         target.stages[stat] = clampStage(target.stages[stat] + d);
     });
-    printLog(`📊 ${target.name}: ${Object.entries(deltas).map(([k,v])=>`${k} ${v>0?'+':''}${v}${doubled?' (raddoppiato!)':''}`).join(', ')}`);
+    printLog(`📊 ${pname(target)}: ${Object.entries(deltas).map(([k,v])=>`${k} ${v>0?'+':''}${v}${doubled?' (raddoppiato!)':''}`).join(', ')}`);
 }
 
 /* =========================================================================
@@ -571,26 +571,26 @@ function tryInflictStatus(target, statusType, source) {
     if (target.isFainted) return false;
     if (target.ability === 'Fascino di Pie' && (statusType==='Iperavvelenato')) return false;
     if (EXCLUSIVE_STATUSES.includes(statusType)) {
-        if (target.status.type) { printLog(`${target.name} è già affetto da ${target.status.type}, ${statusType} non ha effetto.`); return false; }
+        if (target.status.type) { printLog(`${pname(target)} è già affetto da ${target.status.type}, ${statusType} non ha effetto.`); return false; }
         target.status = { type: statusType, counter:0, sleepTurns:0 };
-        printLog(`☠️ ${target.name} ora ha lo stato ${statusType}!`);
+        printLog(`☠️ ${pname(target)} ora ha lo stato ${statusType}!`);
         return true;
     }
-    if (statusType === 'Fungo') { target.v.fungo = true; printLog(`🍄 ${target.name} ha lo stato Fungo!`); return true; }
+    if (statusType === 'Fungo') { target.v.fungo = true; printLog(`🍄 ${pname(target)} ha lo stato Fungo!`); return true; }
     if (statusType === 'Confuso') {
         target.v.confused = true;
-        printLog(`💫 ${target.name} è confuso!`);
+        printLog(`💫 ${pname(target)} è confuso!`);
         return true;
     }
-    if (statusType === 'DA') { target.v.da = true; printLog(`🍽️ ${target.name} ha lo stato DA!`); return true; }
+    if (statusType === 'DA') { target.v.da = true; printLog(`🍽️ ${pname(target)} ha lo stato DA!`); return true; }
     return false;
 }
 
 function healPoke(target, amountPct) {
-    if (target.v.da) { printLog(`${target.name} non può curarsi: stato DA attivo!`); return; }
+    if (target.v.da) { printLog(`${pname(target)} non può curarsi: stato DA attivo!`); return; }
     const heal = Math.floor(target.maxHp * amountPct);
     target.hp = Math.min(target.maxHp, target.hp + heal);
-    printLog(`💚 ${target.name} recupera ${heal} HP!`);
+    printLog(`💚 ${pname(target)} recupera ${heal} HP!`);
 }
 
 /* =========================================================================
@@ -687,12 +687,12 @@ function triggerEntryAbility(poke) {
         case "Soppressata": setTerreno("Calabro", poke); break;
         case "Divano e Canna": setTerreno("Chill", poke); setClima("Fumo", poke); break;
         case "Poliglotta":
-            printLog(`🗣️ ${poke.name} rivela le mosse avversarie:`);
-            enemyActive(poke.trainerId).forEach(e => printLog(`&nbsp;&nbsp;${e.name}: ${e.moves.map(m=>m.name).join(', ')}`));
+            printLog(`🗣️ ${pname(poke)} rivela le mosse avversarie:`);
+            enemyActive(poke.trainerId).forEach(e => printLog(`&nbsp;&nbsp;${pname(e)}: ${e.moves.map(m=>m.name).join(', ')}`));
             break;
         case "Infermiera":
             sideActive(poke.trainerId).forEach(a => { a.status = {type:null,counter:0,sleepTurns:0}; a.v.fungo=false; a.v.da=false; });
-            printLog(`💊 ${poke.name} cura tutti gli status della squadra!`);
+            printLog(`💊 ${pname(poke)} cura tutti gli status della squadra!`);
             break;
         case "discussione": {
             const opp = enemyActive(poke.trainerId)[poke.activeSlot] || enemyActive(poke.trainerId)[0];
@@ -717,6 +717,14 @@ function printLog(text) {
     let logEl = document.getElementById("log");
     logEl.innerHTML += `<div>${text}</div>`;
     logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Etichetta un Pokémon con il suo giocatore (es. "Pie (G1)"). Usata in TUTTI i messaggi di log
+// che citano un Pokémon per nome, perché due squadre possono scegliere lo stesso Pokémon e il
+// nome da solo (es. "Pie") sarebbe ambiguo su quale dei due stia effettivamente agendo/subendo.
+function pname(poke) {
+    if (!poke) return '???';
+    return `${poke.name} (G${poke.trainerId})`;
 }
 
 /* =========================================================================
@@ -855,7 +863,7 @@ function promptNextMove() {
     if (activePoke.v.forcedMove && activePoke.v.forcedMove.turnsLeft > 0) {
         const mv = activePoke.moves.find(m=>m.name===activePoke.v.forcedMove.name);
         if (mv) {
-            printLog(`🔁 ${activePoke.name} è costretto a ripetere ${mv.name}!`);
+            printLog(`🔁 ${pname(activePoke)} è costretto a ripetere ${mv.name}!`);
             queueAction(activePoke, mv, defaultTargetFor(activePoke, mv));
             activePoke.v.forcedMove.turnsLeft--;
             advanceActor();
@@ -947,7 +955,7 @@ function openSwitchMenu() {
     const trainerId = currentTrainerTurn;
     const bench = (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
     const activePoke = trainerId===1?gameState.p1Active[currentSlotTurn]:gameState.p2Active[currentSlotTurn];
-    if (activePoke && activePoke.v.trapped) { printLog(`🚫 ${activePoke.name} non può lasciare il campo!`); return; }
+    if (activePoke && activePoke.v.trapped) { printLog(`🚫 ${pname(activePoke)} non può lasciare il campo!`); return; }
     if (bench.length === 0) { printLog("Nessun Pokémon disponibile per il cambio."); return; }
     showModal(`Cambia con:`, bench.map(b => ({
         label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
@@ -1034,7 +1042,7 @@ function processQueuedAction(idx, flinched) {
     const proceed = () => processQueuedAction(idx + 1, flinched);
 
     if (action.actor.isFainted) { proceed(); return; }
-    if (flinched.has(action.actor)) { printLog(`😵 ${action.actor.name} tentenna e non può muoversi!`); proceed(); return; }
+    if (flinched.has(action.actor)) { printLog(`😵 ${pname(action.actor)} tentenna e non può muoversi!`); proceed(); return; }
 
     // Risolve il bersaglio "live": se lo slot originale ora è occupato da un Pokémon diverso
     // (switch manuale posticipato o Pausa Siga avvenuti prima/durante l'esecuzione), la mossa
@@ -1067,22 +1075,22 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         attacker.status.sleepTurns++;
         if (attacker.status.sleepTurns >= 3 || (attacker.status.sleepTurns===2 && Math.random()<0.5)) {
             attacker.status = {type:null,counter:0,sleepTurns:0};
-            printLog(`😴 ${attacker.name} si sveglia!`);
-        } else { printLog(`😴 ${attacker.name} dorme ancora.`); onComplete(); return; }
+            printLog(`😴 ${pname(attacker)} si sveglia!`);
+        } else { printLog(`😴 ${pname(attacker)} dorme ancora.`); onComplete(); return; }
     }
     if (attacker.status.type === 'Frozen') {
-        if (Math.random() < 0.5) { attacker.status = {type:null,counter:0,sleepTurns:0}; printLog(`🧊 ${attacker.name} si libera dal gelo!`); }
-        else { printLog(`🧊 ${attacker.name} è congelato e non può muoversi!`); onComplete(); return; }
+        if (Math.random() < 0.5) { attacker.status = {type:null,counter:0,sleepTurns:0}; printLog(`🧊 ${pname(attacker)} si libera dal gelo!`); }
+        else { printLog(`🧊 ${pname(attacker)} è congelato e non può muoversi!`); onComplete(); return; }
     }
     if (attacker.v.confused) {
         const escapeChance = gameState.field.terreno === 'Alcol' ? 0.125 : 0.25;
-        if (Math.random() < escapeChance) { attacker.v.confused = false; printLog(`💫 ${attacker.name} non è più confuso.`); }
+        if (Math.random() < escapeChance) { attacker.v.confused = false; printLog(`💫 ${pname(attacker)} non è più confuso.`); }
         else if (Math.random() < 0.33) {
             // La confusione ha il 33% di probabilità di impedire la mossa e far colpire se stessi
             const selfDmg = Math.max(1, Math.floor(attacker.maxHp * 0.08));
             attacker.hp = Math.max(0, attacker.hp - selfDmg);
-            printLog(`💫 ${attacker.name} è confuso e si colpisce da solo (${selfDmg} danni)!`);
-            if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${attacker.name} è andato KO!`); handleFaint(attacker); }
+            printLog(`💫 ${pname(attacker)} è confuso e si colpisce da solo (${selfDmg} danni)!`);
+            if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${pname(attacker)} è andato KO!`); handleFaint(attacker); }
             onComplete(); return;
         }
     }
@@ -1090,7 +1098,7 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     // Ottimizzazione: blocco di sicurezza nel caso una mossa offensiva venga forzata
     // (es. ripetizione forzata) nel turno immediatamente successivo a un'altra mossa offensiva.
     if (attacker.ability === 'Ottimizzazione' && move.category !== 'Stato' && attacker.v.giaLastDamagingRound === gameState.roundNumber - 1) {
-        printLog(`🚫 ${attacker.name} non può usare mosse che infliggono danno per due turni consecutivi!`);
+        printLog(`🚫 ${pname(attacker)} non può usare mosse che infliggono danno per due turni consecutivi!`);
         onComplete(); return;
     }
 
@@ -1100,11 +1108,11 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     attacker.v.hasActedOnce = true;
 
     if (move.effect === 'fermii_flinch') {
-        if (attacker.v.hadFirstMoveUsed) { printLog(`${attacker.name} non può usare Fermii se non come prima mossa in assoluto!`); }
+        if (attacker.v.hadFirstMoveUsed) { printLog(`${pname(attacker)} non può usare Fermii se non come prima mossa in assoluto!`); }
         else {
             attacker.v.hadFirstMoveUsed = true;
             enemyActive(attacker.trainerId).forEach(e => flinchedSet.add(e));
-            printLog(`💨 ${attacker.name} usa Fermii! Gli avversari che devono ancora muoversi tentennano!`);
+            printLog(`💨 ${pname(attacker)} usa Fermii! Gli avversari che devono ancora muoversi tentennano!`);
         }
         onComplete(); return;
     }
@@ -1116,7 +1124,7 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         defender = ally;
     }
 
-    printLog(`▶️ <b>${attacker.name}</b> usa <b>${move.name}</b>!`);
+    printLog(`▶️ <b>${pname(attacker)}</b> usa <b>${move.name}</b>!`);
 
     if (attacker.ability === 'Ottimizzazione' && move.category !== 'Stato') {
         attacker.v.giaLastDamagingRound = gameState.roundNumber;
@@ -1127,16 +1135,16 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     if (move.effect === 'all_in') {
         if (!defender) { printLog(`${move.name} fallisce: nessun bersaglio disponibile.`); onComplete(); return; }
         if (isProtected(defender, attacker, move)) {
-            printLog(`🛡️ ${defender.name} si protegge dall'attacco!`);
+            printLog(`🛡️ ${pname(defender)} si protegge dall'attacco!`);
             onComplete(); return;
         }
         if (checkAccuracy(attacker, defender, move)) {
             defender.hp = 0; defender.isFainted = true;
-            printLog(`💥 All in va a segno! ${defender.name} va KO!`);
+            printLog(`💥 All in va a segno! ${pname(defender)} va KO!`);
             handleFaint(defender);
         } else {
             attacker.hp = 0; attacker.isFainted = true;
-            printLog(`💥 All in fallisce! ${attacker.name} va KO!`);
+            printLog(`💥 All in fallisce! ${pname(attacker)} va KO!`);
             handleFaint(attacker);
         }
         onComplete();
@@ -1147,7 +1155,7 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     const cannataBypass = move.effect === 'cannata' && defender && defender.ability === 'Scopiamo';
 
     if (defender && move.target === 'Single Target' && !cannataBypass && isProtected(defender, attacker, move)) {
-        printLog(`🛡️ ${defender.name} si protegge dall'attacco!`);
+        printLog(`🛡️ ${pname(defender)} si protegge dall'attacco!`);
         onComplete(); return;
     }
 
@@ -1164,9 +1172,9 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     // Cannata!!! diventa OHKO contro pokemon con abilità Scopiamo (già garantito di andare a
     // segno dal controllo di accuracy sopra, e di ignorare Protect dal controllo sopra).
     if (move.effect === 'cannata' && defender && defender.ability === 'Scopiamo') {
-        printLog(`🎤 Cannata!!! trapassa ogni protezione e mette KO ${defender.name} all'istante (Scopiamo)!`);
+        printLog(`🎤 Cannata!!! trapassa ogni protezione e mette KO ${pname(defender)} all'istante (Scopiamo)!`);
         defender.hp = 0; defender.isFainted = true;
-        printLog(`💀 <b>${defender.name} è andato KO!</b>`);
+        printLog(`💀 <b>${pname(defender)} è andato KO!</b>`);
         runMoveEffect(move, attacker, defender, { targets:[defender], totalDamage: defender.maxHp }, () => {
             if (defender.isFainted) handleFaint(defender);
             if (attacker.isFainted) handleFaint(attacker);
@@ -1192,9 +1200,9 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     let totalDamage = 0;
     targets.forEach(t => {
         if (t.isFainted) return;
-        if (t !== attacker && isProtected(t, attacker, move)) { printLog(`🛡️ ${t.name} si protegge!`); return; }
+        if (t !== attacker && isProtected(t, attacker, move)) { printLog(`🛡️ ${pname(t)} si protegge!`); return; }
         const { dmg, tMod } = computeDamage(attacker, t, move, { isCrit, numTargets: targets.length });
-        if (tMod === 0) { printLog(`🚫 Non ha effetto su ${t.name}.`); return; }
+        if (tMod === 0) { printLog(`🚫 Non ha effetto su ${pname(t)}.`); return; }
         // Recoil: contiamo solo gli HP EFFETTIVAMENTE sottratti (capped a 0), non il danno
         // teorico della mossa. Se il colpo manda KO con meno danno di quello calcolato,
         // il contraccolpo successivo si baserà solo sulla parte realmente inflitta.
@@ -1202,15 +1210,15 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         t.hp = Math.max(0, t.hp - dmg);
         const actualDamage = hpBefore - t.hp;
         totalDamage += actualDamage;
-        printLog(`💥 ${t.name} subisce ${actualDamage} danni!` + (tMod>1?' 🔺 Superefficace!':tMod<1?' 🔻 Poco efficace...':''));
-        if (t.hp === 0) { t.isFainted = true; printLog(`💀 <b>${t.name} è andato KO!</b>`); }
+        printLog(`💥 ${pname(t)} subisce ${actualDamage} danni!` + (tMod>1?' 🔺 Superefficace!':tMod<1?' 🔻 Poco efficace...':''));
+        if (t.hp === 0) { t.isFainted = true; printLog(`💀 <b>${pname(t)} è andato KO!</b>`); }
     });
 
     if (move.effect === 'recoil_33' && totalDamage > 0) {
         const recoil = Math.floor(totalDamage * 0.33);
         attacker.hp = Math.max(0, attacker.hp - recoil);
-        printLog(`💢 ${attacker.name} subisce ${recoil} danni di contraccolpo!`);
-        if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${attacker.name} è andato KO per il contraccolpo!`); }
+        printLog(`💢 ${pname(attacker)} subisce ${recoil} danni di contraccolpo!`);
+        if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${pname(attacker)} è andato KO per il contraccolpo!`); }
     }
 
     runMoveEffect(move, attacker, defender, { targets, totalDamage }, () => {
@@ -1270,12 +1278,12 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
         case 'anguria_drum':
             attacker.hp = Math.max(1, Math.floor(attacker.hp/2));
             attacker.stages.Atk = 6;
-            printLog(`🍉 ${attacker.name} dimezza i propri HP e massimizza l'Attacco!`);
+            printLog(`🍉 ${pname(attacker)} dimezza i propri HP e massimizza l'Attacco!`);
             break;
         case 'birra_heal':
             healPoke(attacker, 1.0);
             attacker.v.accuracyPenalty = (attacker.v.accuracyPenalty||0) + 50;
-            printLog(`🍺 ${attacker.name} recupera tutta la vita ma perde precisione!`);
+            printLog(`🍺 ${pname(attacker)} recupera tutta la vita ma perde precisione!`);
             break;
         case 'medusa_effect':
             allActive().forEach(p => tryInflictStatus(p, 'Confuso'));
@@ -1283,7 +1291,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             break;
         case 'recoil_33': break; // gestito sopra
         case 'drift_effect':
-            if (ctx.failed) { attacker.hp = Math.max(0, attacker.hp - Math.floor(attacker.maxHp/3)); printLog(`💨 Drift fallisce, ${attacker.name} perde 1/3 HP!`); if(attacker.hp===0){attacker.isFainted=true; handleFaint(attacker);} }
+            if (ctx.failed) { attacker.hp = Math.max(0, attacker.hp - Math.floor(attacker.maxHp/3)); printLog(`💨 Drift fallisce, ${pname(attacker)} perde 1/3 HP!`); if(attacker.hp===0){attacker.isFainted=true; handleFaint(attacker);} }
             else { changeStage(attacker, {Spe:6}); setClima('Fumo', attacker); }
             break;
         case 'rutto_effect':
@@ -1299,7 +1307,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             printLog(`🍽️ Gli avversari colpiti ricevono stato DA!`);
             break;
         case 'pausa_siga': {
-            if (attacker.v.moveLockout['Pausa Siga'] > 0) { printLog(`${attacker.name} non può ancora ripetere Pausa Siga!`); break; }
+            if (attacker.v.moveLockout['Pausa Siga'] > 0) { printLog(`${pname(attacker)} non può ancora ripetere Pausa Siga!`); break; }
             const bench = (attacker.trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p !== attacker && p.activeSlot===null);
             if (bench.length === 0) { printLog(`Pausa Siga fallisce: nessun alleato disponibile!`); break; }
 
@@ -1311,7 +1319,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             gameState.pendingReturn = gameState.pendingReturn || [];
             gameState.pendingReturn.push({ poke: attacker, slot, trainerId });
 
-            printLog(`🚬 ${attacker.name} esce per una pausa sigaretta! Rientrerà a fine turno.`);
+            printLog(`🚬 ${pname(attacker)} esce per una pausa sigaretta! Rientrerà a fine turno.`);
             showModal(`Chi mandi in campo al posto di ${attacker.name}?`, bench.map(b => ({
                 label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
                 onClick: () => {
@@ -1371,7 +1379,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
         case 'svenimento':
             attacker.hp = Math.max(1, Math.floor(attacker.hp/2));
             attacker.v.redirectTurns = 3;
-            printLog(`🎯 Gli avversari saranno costretti a colpire ${attacker.name} per 3 turni!`);
+            printLog(`🎯 Gli avversari saranno costretti a colpire ${pname(attacker)} per 3 turni!`);
             break;
         case 'calcio_balcanico':
             if (defender && Math.random() < 0.3) changeStage(defender, {Def:-1});
@@ -1379,7 +1387,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
         case 'riposino':
             healPoke(attacker, 1.0);
             attacker.status = { type:'Sleep', counter:0, sleepTurns:0 };
-            printLog(`😴 ${attacker.name} recupera tutti gli HP ma si addormenta!`);
+            printLog(`😴 ${pname(attacker)} recupera tutti gli HP ma si addormenta!`);
             break;
         case 'multi_hit': break; // gestito con hit multipli extra nel wrapper sotto
         case 'prenotata':
@@ -1387,7 +1395,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
                 let choice = window.prompt(`${attacker.name} usa Prenotata su ${defender.name}. Quale mossa di ${defender.name} deve ripetere per 3 turni? (${defender.moves.map(m=>m.name).join(', ')})`, defender.moves[0].name);
                 let mv = defender.moves.find(m=>m.name===choice) || defender.moves[0];
                 defender.v.forcedMove = { name: mv.name, turnsLeft: 3 };
-                printLog(`🔒 ${defender.name} è costretto a ripetere ${mv.name} per 3 turni!`);
+                printLog(`🔒 ${pname(defender)} è costretto a ripetere ${mv.name} per 3 turni!`);
             }
             break;
         case 'heal_full':
@@ -1481,7 +1489,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
                 defender.status = { type:'Sleep', counter:0, sleepTurns:0 };
                 defender.hp = defender.maxHp;
                 defender.v.fungo = false; defender.v.da = false; defender.v.confused = false;
-                printLog(`😴 ${defender.name} viene addormentato ma curato e portato a HP pieni!`);
+                printLog(`😴 ${pname(defender)} viene addormentato ma curato e portato a HP pieni!`);
             }
             break;
         case 'ordine_glovo':
@@ -1516,7 +1524,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
                 const active = attacker.trainerId===1?gameState.p1Active:gameState.p2Active;
                 active[aSlot] = ally; active[allySlot] = attacker;
                 attacker.activeSlot = allySlot; ally.activeSlot = aSlot;
-                printLog(`🔀 ${attacker.name} e ${ally.name} si scambiano di posto!`);
+                printLog(`🔀 ${pname(attacker)} e ${pname(ally)} si scambiano di posto!`);
             }
             break;
         }
@@ -1535,9 +1543,9 @@ function handleProtect(poke, mode) {
     poke.v.protectStreak = (poke.v.lastProtectRound === gameState.roundNumber - 1) ? poke.v.protectStreak + 1 : 0;
     poke.v.lastProtectRound = gameState.roundNumber;
     const failChance = [0, 0.5, 0.99, 1.0][Math.min(poke.v.protectStreak, 3)];
-    if (Math.random() < failChance) { printLog(`🛡️ ${poke.name} fallisce nel proteggersi questa volta!`); return; }
-    if (mode === 'all') { poke.v.protectedThisTurn = true; printLog(`🛡️ ${poke.name} si protegge da qualsiasi attacco!`); }
-    if (mode === 'males') { poke.v.protectedFromMalesThisTurn = true; printLog(`🛡️ ${poke.name} si protegge dagli attacchi dei Pokemon Maschi!`); }
+    if (Math.random() < failChance) { printLog(`🛡️ ${pname(poke)} fallisce nel proteggersi questa volta!`); return; }
+    if (mode === 'all') { poke.v.protectedThisTurn = true; printLog(`🛡️ ${pname(poke)} si protegge da qualsiasi attacco!`); }
+    if (mode === 'males') { poke.v.protectedFromMalesThisTurn = true; printLog(`🛡️ ${pname(poke)} si protegge dagli attacchi dei Pokemon Maschi!`); }
 }
 
 /* Danni extra situazionali (moltiplicatori dipendenti da move.effect) applicati come wrapper */
@@ -1574,8 +1582,8 @@ executeSingleAction = function(attacker, defender, move, flinchedSet, onComplete
                 const { dmg, tMod } = computeDamage(attacker, defender, move, { isCrit:false, numTargets:1 });
                 if (tMod === 0) break;
                 defender.hp = Math.max(0, defender.hp - dmg);
-                printLog(`💥 Colpo aggiuntivo: ${defender.name} subisce ${dmg} danni!`);
-                if (defender.hp === 0) { defender.isFainted = true; printLog(`💀 ${defender.name} è andato KO!`); handleFaint(defender); }
+                printLog(`💥 Colpo aggiuntivo: ${pname(defender)} subisce ${dmg} danni!`);
+                if (defender.hp === 0) { defender.isFainted = true; printLog(`💀 ${pname(defender)} è andato KO!`); handleFaint(defender); }
             }
         }
         onComplete();
@@ -1597,7 +1605,7 @@ function endOfRoundEffects() {
             if (current) current.resetOnSwitchOut();
             active[entry.slot] = entry.poke;
             entry.poke.activeSlot = entry.slot;
-            printLog(`🚬 ${entry.poke.name} rientra in campo dopo la pausa sigaretta!`);
+            printLog(`🚬 ${pname(entry.poke)} rientra in campo dopo la pausa sigaretta!`);
             triggerEntryAbility(entry.poke);
         });
         gameState.pendingReturn = [];
@@ -1605,16 +1613,16 @@ function endOfRoundEffects() {
 
     allActive().forEach(p => {
         if (p.isFainted) return;
-        if (p.status.type === 'Burn') { const d = Math.floor(p.maxHp/16); p.hp = Math.max(0,p.hp-d); printLog(`🔥 ${p.name} subisce ${d} danni da Burn.`); }
+        if (p.status.type === 'Burn') { const d = Math.floor(p.maxHp/16); p.hp = Math.max(0,p.hp-d); printLog(`🔥 ${pname(p)} subisce ${d} danni da Burn.`); }
         if (p.status.type === 'Iperavvelenato') {
             p.status.counter = (p.status.counter||0) + 1;
             const frac = Math.min(1, Math.pow(2, p.status.counter-1) / 16);
             const d = Math.floor(p.maxHp * frac);
             p.hp = Math.max(0, p.hp - d);
-            printLog(`☠️ ${p.name} subisce ${d} danni da Iperavvelenamento.`);
+            printLog(`☠️ ${pname(p)} subisce ${d} danni da Iperavvelenamento.`);
         }
-        if (p.v.fungo) { const d = Math.floor(p.maxHp/8); p.hp = Math.max(0,p.hp-d); printLog(`🍄 ${p.name} subisce ${d} danni da Fungo.`); }
-        if (p.hp === 0 && !p.isFainted) { p.isFainted = true; printLog(`💀 ${p.name} è andato KO per lo stato!`); }
+        if (p.v.fungo) { const d = Math.floor(p.maxHp/8); p.hp = Math.max(0,p.hp-d); printLog(`🍄 ${pname(p)} subisce ${d} danni da Fungo.`); }
+        if (p.hp === 0 && !p.isFainted) { p.isFainted = true; printLog(`💀 ${pname(p)} è andato KO per lo stato!`); }
     });
 
     if (gameState.field.clima === 'Fumo') {
@@ -1623,8 +1631,8 @@ function endOfRoundEffects() {
             const frac = (p.types.includes('Fitness') || p.types.includes('Puro')) ? 1/10 : 1/16;
             const d = Math.floor(p.maxHp * frac);
             p.hp = Math.max(0, p.hp - d);
-            printLog(`☁️ ${p.name} subisce ${d} danni dal Clima Fumo.`);
-            if (p.hp === 0) { p.isFainted = true; printLog(`💀 ${p.name} è andato KO per il Clima!`); }
+            printLog(`☁️ ${pname(p)} subisce ${d} danni dal Clima Fumo.`);
+            if (p.hp === 0) { p.isFainted = true; printLog(`💀 ${pname(p)} è andato KO per il Clima!`); }
         });
     }
 
@@ -1642,10 +1650,12 @@ function endOfRoundEffects() {
         if (p.v.redirectTurns > 0) p.v.redirectTurns--;
     });
 
-    // A questo punto tutte le mosse e gli effetti di fine turno sono stati risolti: il gioco
-    // si ferma qui, mostrando il bottone "Prosegui al prossimo turno" al posto della griglia
-    // mosse, così il log può essere letto con calma. Solo al click si procede con eventuali
-    // sostituzioni forzate per KO e si passa effettivamente al turno successivo.
+    // A questo punto tutte le mosse e gli effetti di fine turno sono stati risolti: aggiorniamo
+    // subito il tabellone (HP, KO, status, stage) così riflette la situazione reale dopo il
+    // turno appena concluso, PRIMA di fermarci con il bottone "Prosegui al prossimo turno" al
+    // posto della griglia mosse. Così il giocatore vede l'esito effettivo mentre legge il log,
+    // e solo al click si procede con eventuali sostituzioni forzate per KO.
+    updateUI();
     showContinueButton();
 }
 
