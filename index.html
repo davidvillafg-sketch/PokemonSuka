@@ -17,7 +17,19 @@
 </head>
 <body>
 
-<div id="select-screen" class="screen">
+<div id="mode-screen" class="screen">
+    <h2>Seleziona la modalità di gioco</h2>
+    <div style="display: flex; flex-direction: column; gap: 10px; max-width: 420px; width: 100%; margin: 20px auto;">
+        <button onclick="selectGameMode('local')" style="padding: 14px; font-size: 1.1em; background: #2980b9;">
+            1v1 locale
+        </button>
+        <button onclick="selectGameMode('bot')" style="padding: 14px; font-size: 1.1em; background: #27ae60;">
+            Giocatore contro Bot
+        </button>
+    </div>
+</div>
+
+<div id="select-screen" class="screen hidden">
     <h2>Seleziona la squadra (4 Pokémon ciascuno)</h2>
     <h3 id="selector-title" style="color: #2ecc71;">Turno: Giocatore 1 (Selezionati: 0/4)</h3>
     <div id="roster-grid" class="roster-grid"></div>
