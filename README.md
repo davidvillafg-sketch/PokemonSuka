@@ -1,4 +1,4 @@
-# Regolamento Ufficiale — Pokémon Custom Edition
+# Regolamento Ufficiale — Pokémon Suka Edition
 
 Documento tecnico di riferimento per tipi, mosse, abilità, stati, terreni, climi e meccaniche di combattimento.
 
