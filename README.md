@@ -4,7 +4,7 @@ Documento tecnico di riferimento per tipi, mosse, abilità, stati, terreni, clim
 
 ---
 
-## Come scaricare il gioco
+## 0. Come scaricare il gioco
 - Cliccare sul link: https://davidvillafg-sketch.github.io/PokemonSuka/
 - Andare su "Condividi"
 - Andare su "Aggiungi a Home"
