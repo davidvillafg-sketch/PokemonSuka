@@ -4,6 +4,13 @@ Documento tecnico di riferimento per tipi, mosse, abilità, stati, terreni, clim
 
 ---
 
+## Come scaricare il gioco
+- Cliccare sul link: https://davidvillafg-sketch.github.io/PokemonSuka/
+- Andare su "Condividi"
+- Andare su "Aggiungi a Home"
+- Cliccare "Aggiungi"
+Seguendo questi passi il gioco sara aggiunto alla Homepage del dispositivo come una App e sara utilizzabile anche offline dopo il primo accesso. Gli eventuali aggiornamenti saranno scaricati automaticamente ogni volta che si accede alla App mentre si è collegati ad Internet.
+
 ## 1. Formato di Gioco
 
 - **Formato**: stile VGC, lotte in doppio (2 vs 2 in campo).
