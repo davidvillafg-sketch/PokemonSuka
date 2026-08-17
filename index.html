@@ -2,7 +2,14 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+    <meta name="theme-color" content="#1e272c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Pokemon Suka">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./icon-180.png">
+
 <title>Pokemon Custom VGC Battle</title>
 <style>
     body {
@@ -105,6 +112,89 @@
     #continue-turn-btn { padding: 12px 24px; font-size: 1em; background: #27ae60; }
     #continue-turn-btn:hover { background: #1e8449; }
 </style>
+
+<style>
+/* ===== iPhone / native-app presentation ===== */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html {
+  min-height: 100%;
+  background: #1e272c;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  box-sizing: border-box;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Evita lo zoom involontario sui controlli in Safari */
+input, select, textarea, button {
+  font-size: 16px;
+  -webkit-appearance: none;
+}
+
+/* Aspetto da app installata */
+@media (display-mode: standalone) {
+  html, body {
+    background: #1e272c;
+  }
+}
+
+/* Touch feedback più simile a un'app */
+button, [role="button"], select {
+  touch-action: manipulation;
+}
+
+button:active {
+  transform: scale(0.98);
+  filter: brightness(0.92);
+  transition: transform 70ms ease, filter 70ms ease;
+}
+
+/* Evita la selezione accidentale del testo durante il gioco */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Mantiene selezionabili i campi di testo, se presenti */
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Schermi piccoli: riduci leggermente gli elementi che altrimenti
+   potrebbero risultare troppo grandi */
+@media (max-width: 430px) {
+  body {
+    font-size: 15px;
+  }
+}
+
+/* Landscape su iPhone: sfrutta meglio lo spazio */
+@media (orientation: landscape) and (max-height: 500px) {
+  body {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
+</style>
+
 </head>
 <body>
 
@@ -1806,5 +1896,35 @@ function processForcedSwitchQueue(queue, idx, onAllResolved) {
 
 window.onload = () => { initRosterSelection(); };
 </script>
+
+<script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js', { scope: './' })
+            .then(registration => {
+                // Controlla periodicamente se GitHub Pages ha pubblicato
+                // una nuova versione del Service Worker.
+                registration.update();
+
+                // Se arriva una nuova versione mentre l'app è aperta,
+                // la lasciamo installare in background senza ricaricare:
+                // la partita corrente non viene interrotta.
+                registration.addEventListener('updatefound', () => {
+                    const newWorker = registration.installing;
+                    if (!newWorker) return;
+
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' &&
+                            navigator.serviceWorker.controller) {
+                            console.log('Nuova versione disponibile. Sarà usata alla prossima apertura.');
+                        }
+                    });
+                });
+            })
+            .catch(err => console.error('Service Worker registration failed:', err));
+    });
+}
+</script>
+
 </body>
 </html>
