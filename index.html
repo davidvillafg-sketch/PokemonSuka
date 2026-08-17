@@ -832,6 +832,71 @@ function showContinueButton() {
     };
 }
 
+// Mostra, al posto della griglia mosse, il bottone "Termina Partita" quando la battaglia
+// è conclusa (usato da checkWinner()). Al click si apre il popup che offre la possibilità
+// di iniziare una nuova partita indipendente nella stessa sessione.
+function showEndGameButton() {
+    const area = document.getElementById("controls-area");
+    area.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align:center;">
+            <h3 style="margin:0 0 10px 0;">Partita Terminata</h3>
+            <button id="end-game-btn" style="background:#e74c3c;">🏁 Termina Partita</button>
+        </div>`;
+    document.getElementById("end-game-btn").onclick = () => {
+        area.innerHTML = "";
+        showPlayAgainPopup();
+    };
+}
+
+// Popup mostrato dopo aver premuto "Termina Partita": offre la possibilità di giocare
+// un'altra partita, riportando il gioco allo stato iniziale (selezione squadre).
+function showPlayAgainPopup() {
+    const root = document.getElementById("modal-root");
+    root.innerHTML = `<div class="modal-overlay"><div class="modal-box pass-device-box">
+        <h3>🎮 Partita conclusa!</h3>
+        <p>Vuoi giocare un'altra partita? Si tornerà alla schermata di selezione delle squadre.</p>
+        <div id="play-again-btn-holder"></div>
+    </div></div>`;
+    const holder = document.getElementById("play-again-btn-holder");
+    const btn = document.createElement("button");
+    btn.innerText = "Gioca di nuovo";
+    btn.style.background = "#27ae60";
+    btn.onclick = () => { root.innerHTML = ""; resetGame(); };
+    holder.appendChild(btn);
+}
+
+// Riporta il gioco esattamente allo stato iniziale (come al primo caricamento della
+// pagina): azzera gameState, le variabili di turno e la selezione squadre, svuota il
+// log e torna alla schermata di selezione Pokémon per Giocatore 1. Permette così di
+// giocare più partite indipendenti nella stessa sessione senza ricaricare la pagina.
+function resetGame() {
+    gameState = {
+        phase:'selection',
+        currentPlayerSelecting:1,
+        p1TeamTemplates:[], p2TeamTemplates:[],
+        p1Team:[], p2Team:[],
+        p1Active:[null,null], p2Active:[null,null],
+        field:{ terreno:null, terrenoTurns:0, clima:null, climaTurns:0 },
+        p1Side:{ dmgReductionPct:0, dmgReductionTurns:0 },
+        p2Side:{ dmgReductionPct:0, dmgReductionTurns:0 },
+        roundNumber:0,
+        pendingReturn:[]
+    };
+    currentTrainerTurn = 1;
+    currentSlotTurn = 0;
+    roundActions = [];
+    selectedIndices = [];
+
+    document.getElementById("log").innerHTML = "";
+    document.getElementById("battle-screen").classList.add("hidden");
+    document.getElementById("select-screen").classList.remove("hidden");
+    document.getElementById("selector-title").innerText = "Turno: Giocatore 1 (Selezionati: 0/4)";
+    document.getElementById("confirm-selection").innerText = "Conferma Squadra Giocatore 1";
+    document.getElementById("confirm-selection").disabled = true;
+    restoreControlsArea();
+    initRosterSelection();
+}
+
 /* =========================================================================
    TURNO: SELEZIONE AZIONI
    ========================================================================= */
@@ -846,7 +911,7 @@ function checkWinner() {
     let p2Alive = livingTeam(2).length>0;
     if (!p1Alive || !p2Alive) {
         printLog(`🏆 <b>FINE PARTITA! Vince il Giocatore ${p1Alive?1:2}!</b>`);
-        document.getElementById("controls-area").innerHTML = "<h3>Partita Terminata</h3>";
+        showEndGameButton();
         return true;
     }
     return false;
