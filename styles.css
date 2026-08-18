@@ -1,0 +1,179 @@
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #1e272c;
+        color: #ecf0f1;
+        margin: 0;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        box-sizing: border-box;
+    }
+    h1, h2, h3 { margin: 5px 0; text-align: center; color: #f39c12; }
+    .screen { display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
+    .hidden { display: none !important; }
+
+    #select-screen { overflow-y: auto; padding: 10px; }
+    .roster-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+    .poke-card {
+        background: #2c3e50;
+        border: 2px solid #34495e;
+        border-radius: 8px;
+        padding: 10px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .poke-card.selected { border-color: #2ecc71; background: #27ae6033; }
+    .poke-card h4 { margin: 0 0 5px 0; color: #3498db; }
+    .poke-card p { margin: 2px 0; font-size: 0.85em; }
+    .poke-thumb {
+        width: 40px; height: 40px; object-fit: contain;
+        vertical-align: middle; margin-right: 6px;
+        background: #10161b; border-radius: 6px; border: 1px solid #34495e;
+    }
+    .poke-thumb-battle {
+        width: 28px; height: 28px; object-fit: contain;
+        vertical-align: middle; margin-right: 5px;
+        background: #10161b; border-radius: 5px; border: 1px solid #4e6d8c;
+    }
+
+    .battle-container { display: flex; flex-direction: column; flex-grow: 1; gap: 10px; }
+    .field-status {
+        background: #34495e; padding: 8px; border-radius: 6px; font-size: 0.9em;
+        display: flex; justify-content: space-around; text-align: center; flex-wrap: wrap;
+    }
+    .battleboard {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+        background: #2c3e50; padding: 10px; border-radius: 8px;
+    }
+    .trainer-side { display: flex; flex-direction: column; gap: 10px; }
+    .active-slot {
+        background: #1a252f; border: 1px solid #4e6d8c; border-radius: 6px;
+        padding: 8px; font-size: 0.85em; cursor: default;
+    }
+    .active-slot.targetable { border-color: #f39c12; cursor: pointer; }
+    .active-slot.targetable:hover { background: #2c3e50; }
+    .active-slot .status-tag {
+        display: inline-block; background: #8e44ad; color: #fff; font-size: 0.75em;
+        border-radius: 3px; padding: 1px 4px; margin-left: 4px;
+    }
+    .active-slot .stage-tag {
+        display: inline-block; background: #16a085; color: #fff; font-size: 0.7em;
+        border-radius: 3px; padding: 1px 3px; margin: 1px;
+    }
+    .hp-bar-container { background: #444; border-radius: 4px; height: 10px; width: 100%; margin: 4px 0; overflow: hidden; }
+    .hp-bar-fill { background: #2ecc71; height: 100%; width: 100%; transition: width 0.3s; }
+    #log {
+        flex-grow: 1; background: #111; border: 1px solid #333; border-radius: 6px;
+        padding: 10px; overflow-y: auto; font-family: monospace; font-size: 0.85em;
+        line-height: 1.4; max-height: 180px;
+    }
+    .controls-area { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; background: #34495e; padding: 10px; border-radius: 8px; }
+    .moves-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    button {
+        background: #e74c3c; color: white; border: none; border-radius: 6px;
+        padding: 8px; font-weight: bold; cursor: pointer; font-size: 0.85em;
+    }
+    button:hover { background: #c0392b; }
+    button:disabled { background: #7f8c8d; cursor: not-allowed; }
+    .secondary-btn { background: #2980b9; }
+    .secondary-btn:hover { background: #1f618d; }
+    .modal-overlay {
+        position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.75);
+        display: flex; align-items: center; justify-content: center; z-index: 50;
+    }
+    .modal-box {
+        background: #2c3e50; border: 2px solid #f39c12; border-radius: 8px; padding: 15px;
+        max-width: 90%; max-height: 80%; overflow-y: auto;
+    }
+    .modal-box button { display:block; width: 100%; margin: 4px 0; text-align: left; background:#34495e; }
+    .modal-box button:hover { background:#4e6d8c; }
+    .pass-device-box { text-align: center; }
+    .pass-device-box button { text-align: center; }
+    #continue-turn-btn { padding: 12px 24px; font-size: 1em; background: #27ae60; }
+    #continue-turn-btn:hover { background: #1e8449; }
+
+/* ===== iPhone / native-app presentation ===== */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html {
+  min-height: 100%;
+  background: #1e272c;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  box-sizing: border-box;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Evita lo zoom involontario sui controlli in Safari */
+input, select, textarea, button {
+  font-size: 16px;
+  -webkit-appearance: none;
+}
+
+/* Aspetto da app installata */
+@media (display-mode: standalone) {
+  html, body {
+    background: #1e272c;
+  }
+}
+
+/* Touch feedback più simile a un'app */
+button, [role="button"], select {
+  touch-action: manipulation;
+}
+
+button:active {
+  transform: scale(0.98);
+  filter: brightness(0.92);
+  transition: transform 70ms ease, filter 70ms ease;
+}
+
+/* Evita la selezione accidentale del testo durante il gioco */
+* {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Mantiene selezionabili i campi di testo, se presenti */
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Schermi piccoli: riduci leggermente gli elementi che altrimenti
+   potrebbero risultare troppo grandi */
+@media (max-width: 430px) {
+  body {
+    font-size: 15px;
+  }
+}
+
+/* Landscape su iPhone: sfrutta meglio lo spazio */
+@media (orientation: landscape) and (max-height: 500px) {
+  body {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
