@@ -184,6 +184,7 @@ const EXCLUSIVE_STATUSES = ['Burn','Sleep','Frozen','Iperavvelenato'];
    ========================================================================= */
 let gameState = {
     phase:'selection',
+    mode:'local',
     currentPlayerSelecting:1,
     p1TeamTemplates:[], p2TeamTemplates:[],
     p1Team:[], p2Team:[],
@@ -198,6 +199,51 @@ let gameState = {
 /* =========================================================================
    SELEZIONE SQUADRA
    ========================================================================= */
+function isBotMode() {
+    return gameState.mode === 'bot';
+}
+
+function showModeSelection() {
+    const root = document.getElementById("modal-root");
+    root.innerHTML = `<div class="modal-overlay"><div class="modal-box pass-device-box">
+        <h3>Scegli la modalità di gioco</h3>
+        <p>Seleziona come vuoi giocare questa partita.</p>
+        <div id="mode-selection-btns"></div>
+    </div></div>`;
+
+    const holder = document.getElementById("mode-selection-btns");
+    const localBtn = document.createElement("button");
+    localBtn.innerText = "1v1 locale";
+    localBtn.style.background = "#2980b9";
+    localBtn.onclick = () => chooseGameMode('local');
+
+    const botBtn = document.createElement("button");
+    botBtn.innerText = "Giocatore contro Bot";
+    botBtn.style.background = "#27ae60";
+    botBtn.onclick = () => chooseGameMode('bot');
+
+    holder.appendChild(localBtn);
+    holder.appendChild(botBtn);
+}
+
+function chooseGameMode(mode) {
+    gameState.mode = mode;
+    gameState.phase = 'selection';
+    gameState.currentPlayerSelecting = 1;
+    gameState.p1TeamTemplates = [];
+    gameState.p2TeamTemplates = [];
+    selectedIndices = [];
+
+    closeModal();
+    document.getElementById("select-screen").classList.remove("hidden");
+    document.getElementById("battle-screen").classList.add("hidden");
+    document.getElementById("p2-name-label").innerText = mode === 'bot' ? "Bot" : "Giocatore 2";
+    document.getElementById("selector-title").innerText = "Turno: Giocatore 1 (Selezionati: 0/4)";
+    document.getElementById("confirm-selection").innerText = "Conferma Squadra Giocatore 1";
+    document.getElementById("confirm-selection").disabled = true;
+    initRosterSelection();
+}
+
 function initRosterSelection() {
     const grid = document.getElementById("roster-grid");
     grid.innerHTML = "";
@@ -234,6 +280,13 @@ function confirmPlayerSelection() {
         gameState.p1TeamTemplates = [...selectedIndices];
         selectedIndices = [];
         document.querySelectorAll(".poke-card").forEach(c => c.classList.remove("selected"));
+
+        if (isBotMode()) {
+            gameState.p2TeamTemplates = chooseBotTeam(gameState.p1TeamTemplates);
+            startBattle();
+            return;
+        }
+
         gameState.currentPlayerSelecting = 2;
         document.getElementById("selector-title").innerText = "Turno: Giocatore 2 (Selezionati: 0/4)";
         document.getElementById("confirm-selection").innerText = "Avvia Battaglia";
@@ -534,11 +587,13 @@ function startBattle() {
     gameState.p1Active.forEach((p,i)=>p.activeSlot=i);
     gameState.p2Active.forEach((p,i)=>p.activeSlot=i);
 
-    printLog("⚔️ La battaglia VGC ha inizio tra Giocatore 1 e Giocatore 2!");
+    document.getElementById("p2-name-label").innerText = isBotMode() ? "Bot" : "Giocatore 2";
+    printLog(`⚔️ La battaglia VGC ha inizio tra Giocatore 1 e ${isBotMode() ? "il Bot" : "Giocatore 2"}!`);
     allActive().forEach(p => triggerEntryAbility(p));
     updateUI();
-    // Popup di passaggio dispositivo prima del primo turno di Giocatore 1
-    showPassDevice(1, () => promptNextMove());
+    // Il popup serve solo nella partita locale: il Bot prende il controllo automaticamente.
+    if (isBotMode()) promptNextMove();
+    else showPassDevice(1, () => promptNextMove());
 }
 
 function triggerEntryAbility(poke) {
@@ -727,7 +782,7 @@ function showPlayAgainPopup() {
     const root = document.getElementById("modal-root");
     root.innerHTML = `<div class="modal-overlay"><div class="modal-box pass-device-box">
         <h3>🎮 Partita conclusa!</h3>
-        <p>Vuoi giocare un'altra partita? Si tornerà alla schermata di selezione delle squadre.</p>
+        <p>Vuoi giocare un'altra partita? Si tornerà alla scelta della modalità e delle squadre.</p>
         <div id="play-again-btn-holder"></div>
     </div></div>`;
     const holder = document.getElementById("play-again-btn-holder");
@@ -745,6 +800,7 @@ function showPlayAgainPopup() {
 function resetGame() {
     gameState = {
         phase:'selection',
+        mode:null,
         currentPlayerSelecting:1,
         p1TeamTemplates:[], p2TeamTemplates:[],
         p1Team:[], p2Team:[],
@@ -768,6 +824,7 @@ function resetGame() {
     document.getElementById("confirm-selection").disabled = true;
     restoreControlsArea();
     initRosterSelection();
+    showModeSelection();
 }
 
 /* =========================================================================
@@ -783,7 +840,8 @@ function checkWinner() {
     let p1Alive = livingTeam(1).length>0;
     let p2Alive = livingTeam(2).length>0;
     if (!p1Alive || !p2Alive) {
-        printLog(`🏆 <b>FINE PARTITA! Vince il Giocatore ${p1Alive?1:2}!</b>`);
+        const winnerLabel = p1Alive ? "Giocatore 1" : (isBotMode() ? "il Bot" : "Giocatore 2");
+        printLog(`🏆 <b>FINE PARTITA! Vince ${winnerLabel}!</b>`);
         showEndGameButton();
         return true;
     }
@@ -792,6 +850,14 @@ function checkWinner() {
 
 function promptNextMove() {
     if (checkWinner()) return;
+
+    // In modalità Bot il secondo giocatore viene gestito automaticamente, senza
+    // mostrare la griglia di mosse né il popup di passaggio dispositivo.
+    if (isBotMode() && currentTrainerTurn === 2) {
+        botPromptNextMove();
+        return;
+    }
+
     restoreControlsArea();
 
     let activePoke = currentTrainerTurn===1 ? gameState.p1Active[currentSlotTurn] : gameState.p2Active[currentSlotTurn];
@@ -823,6 +889,221 @@ function promptNextMove() {
         btn.onclick = () => onMoveChosen(activePoke, move);
         grid.appendChild(btn);
     });
+}
+
+/* =========================================================================
+   INTELLIGENZA DEL BOT
+   ========================================================================= */
+function botTeamValue(data) {
+    const b = data.base;
+    const total = b.HP + b.Atk + b.Def + b.SpA + b.SpD + b.Spe;
+    const bestAttack = Math.max(b.Atk, b.SpA);
+    const bestMoves = data.moves.reduce((sum, move) => sum + (move.bp || 0), 0);
+    const hasUtility = data.moves.some(move => move.category === 'Stato');
+    return total + bestAttack * 0.8 + bestMoves * 0.35 + (hasUtility ? 24 : 0) + b.HP * 0.2;
+}
+
+function chooseBotTeam(playerIndices=[]) {
+    const ranked = RAW_POKEMON_DATA.map((data, index) => ({
+        data,
+        index,
+        score: botTeamValue(data)
+    })).sort((a, b) => b.score - a.score || a.index - b.index);
+
+    const chosen = [];
+    const chosenTypes = [];
+    while (chosen.length < 4 && ranked.length) {
+        let best = null;
+        ranked.forEach(candidate => {
+            if (chosen.includes(candidate.index)) return;
+            const newTypes = candidate.data.types.filter(type => !chosenTypes.includes(type)).length;
+            const coverage = candidate.data.moves.reduce((sum, move) => {
+                return sum + (move.bp > 0 && !chosenTypes.includes(move.type) ? 4 : 0);
+            }, 0);
+            const duplicatePenalty = playerIndices.includes(candidate.index) ? 2 : 0;
+            const value = candidate.score + newTypes * 13 + coverage - duplicatePenalty;
+            if (!best || value > best.value || (value === best.value && candidate.index < best.candidate.index)) {
+                best = { candidate, value };
+            }
+        });
+        if (!best) break;
+        chosen.push(best.candidate.index);
+        best.candidate.data.types.forEach(type => { if (!chosenTypes.includes(type)) chosenTypes.push(type); });
+    }
+    return chosen;
+}
+
+function botBench(trainerId, except=null) {
+    const team = trainerId === 1 ? gameState.p1Team : gameState.p2Team;
+    return team.filter(p => !p.isFainted && p.activeSlot === null && p !== except);
+}
+
+function botSwitchScore(candidate, enemies) {
+    const raw = candidate.originalTypes || candidate.types;
+    let score = (candidate.hp / candidate.maxHp) * 32 + (candidate.baseStats.HP + candidate.baseStats.Def + candidate.baseStats.SpD) * 0.12;
+    enemies.forEach(enemy => {
+        const enemyBest = enemy.moves.reduce((best, move) => {
+            if (!move.bp) return best;
+            return Math.max(best, typeMultiplier(move.type, raw));
+        }, 1);
+        const ownBest = candidate.moves.reduce((best, move) => {
+            if (!move.bp) return best;
+            return Math.max(best, typeMultiplier(move.type, enemy.types));
+        }, 1);
+        score += (2 - enemyBest) * 28 + (ownBest - 1) * 22;
+    });
+    if (candidate.status && candidate.status.type) score -= 8;
+    return score;
+}
+
+function chooseBotSwitch(trainerId, slot=null, candidates=null) {
+    const enemies = trainerId === 1 ? enemyActive(1) : enemyActive(2);
+    const bench = candidates || botBench(trainerId);
+    if (!bench.length) return null;
+    return bench
+        .map((candidate, index) => ({ candidate, score: botSwitchScore(candidate, enemies), index }))
+        .sort((a, b) => b.score - a.score || a.candidate.name.localeCompare(b.candidate.name) || a.index - b.index)[0].candidate;
+}
+
+function botMoveTargets(attacker, move) {
+    if (move.target !== 'Single Target') return [null];
+    const enemies = enemyActive(attacker.trainerId);
+    const allies = sideActive(attacker.trainerId).filter(p => p !== attacker);
+    if (attacker.v.mustAttackTarget && !attacker.v.mustAttackTarget.isFainted) return [attacker.v.mustAttackTarget];
+    if (['Grattini', 'Altini Marito', 'Punto Chill'].includes(move.name)) {
+        return [...allies, ...enemies, attacker];
+    }
+    const redirecting = enemies.find(e => e.v.redirectTurns > 0);
+    if (redirecting) return [redirecting];
+    return enemies;
+}
+
+function botStatusScore(attacker, move, target) {
+    const missingHp = 1 - attacker.hp / attacker.maxHp;
+    const currentStages = Object.values(attacker.stages).reduce((sum, value) => sum + value, 0);
+    const targetStages = target ? Object.values(target.stages).reduce((sum, value) => sum + value, 0) : 0;
+    const healingMoves = ['Birra', 'Riposino', 'Heal Full', 'Bibitone', 'Accudire'];
+    const setupMoves = ['Anguria Drum', 'Argomentazione', 'Posing', 'Shadow Boxing', 'Low Cortisol', 'Kart', 'Reginetta'];
+
+    if (healingMoves.includes(move.name)) return missingHp * 110 - (attacker.v.da ? 45 : 0);
+    if (setupMoves.includes(move.name)) return currentStages < 3 && attacker.hp / attacker.maxHp > 0.45 ? 54 - currentStages * 5 : 8;
+    if (move.name === 'Pausa Siga') return botBench(attacker.trainerId, attacker).length ? (missingHp * 55 + 24) : -100;
+    if (move.name === 'Sorriso' || move.name === 'Protect') return attacker.hp / attacker.maxHp < 0.35 ? 60 : 15;
+    if (move.name === 'Prenotata') return target && target.v.lastMoveUsed ? 48 : 12;
+    if (move.name === 'Punto Chill') {
+        if (!target || target === attacker) return 28;
+        return target.trainerId === attacker.trainerId ? (targetStages > 0 ? 62 : 24) : (targetStages < 0 ? 12 : 48);
+    }
+    if (target && target.trainerId !== attacker.trainerId) {
+        let score = target.status.type ? 12 : 30;
+        if (move.effect === 'stat_down_atk_spa' || move.effect === 'cucciolone' || move.effect === 'rutto_effect') score += targetStages > 0 ? 22 : 8;
+        return score;
+    }
+    return 18;
+}
+
+function botActionScore(attacker, move, target) {
+    if (move.effect === 'all_in') {
+        if (!target) return -1000;
+        return target.hp / target.maxHp < 0.55 ? 190 : 42;
+    }
+    if (!move.bp) return botStatusScore(attacker, move, target);
+
+    const targets = move.target === 'All Opponents' ? enemyActive(attacker.trainerId)
+        : move.target === 'All Pokemon' ? allActive()
+        : move.target === 'All Allies' ? sideActive(attacker.trainerId)
+        : move.target === 'Self' ? [attacker]
+        : [target].filter(Boolean);
+    if (!targets.length) return -1000;
+
+    let score = 0;
+    targets.forEach(defender => {
+        const result = computeDamage(attacker, defender, move, { isCrit: move.effect === 'crit_always', numTargets: targets.length });
+        if (!result || result.tMod === 0) {
+            score -= 30;
+            return;
+        }
+        const expectedDamage = result.dmg * ((move.accuracy == null ? 100 : move.accuracy) / 100);
+        score += expectedDamage + (result.tMod > 1 ? 30 * result.tMod : 0);
+        if (result.dmg >= defender.hp) score += 100;
+        if (defender.v.protectedThisTurn) score -= 20;
+    });
+    if (move.priority) score += move.priority * 4;
+    if (move.target === 'All Opponents') score += 18;
+    if (move.effect === 'recoil_33') score -= attacker.hp / attacker.maxHp < 0.35 ? 32 : 0;
+    return score;
+}
+
+function botBestAction(attacker) {
+    const legalMoves = attacker.moves.filter(move => {
+        const locked = attacker.v.moveLockout[move.name] > 0;
+        const giaLocked = attacker.ability === 'Ottimizzazione' &&
+            move.category !== 'Stato' &&
+            attacker.v.giaLastDamagingRound === gameState.roundNumber;
+        return !locked && !giaLocked;
+    });
+
+    let best = null;
+    legalMoves.forEach((move, moveIndex) => {
+        botMoveTargets(attacker, move).forEach((target, targetIndex) => {
+            const score = botActionScore(attacker, move, target);
+            if (!best || score > best.score ||
+                (score === best.score && (moveIndex < best.moveIndex ||
+                    (moveIndex === best.moveIndex && targetIndex < best.targetIndex)))) {
+                best = { type: 'move', move, target, score, moveIndex, targetIndex };
+            }
+        });
+    });
+    return best;
+}
+
+function botShouldSwitch(attacker) {
+    if (!attacker || attacker.v.trapped || attacker.v.frozenAtkNoLeave) return false;
+    const bench = botBench(attacker.trainerId, attacker);
+    if (!bench.length) return false;
+    const hpRatio = attacker.hp / attacker.maxHp;
+    if (hpRatio <= 0.22) return true;
+    if (hpRatio > 0.42) return false;
+    const enemies = enemyActive(attacker.trainerId);
+    const currentThreat = enemies.reduce((sum, enemy) => sum + enemy.moves.reduce((best, move) => {
+        return move.bp ? Math.max(best, typeMultiplier(move.type, attacker.types)) : best;
+    }, 1), 0);
+    const bestBench = Math.max(...bench.map(candidate => botSwitchScore(candidate, enemies)));
+    return currentThreat >= 3 && bestBench > botSwitchScore(attacker, enemies) + 12;
+}
+
+function botPromptNextMove() {
+    const activePoke = gameState.p2Active[currentSlotTurn];
+    document.getElementById("controls-area").innerHTML = `<div style="grid-column:1 / -1; text-align:center;"><h4>Il Bot sta scegliendo...</h4></div>`;
+    if (!activePoke || activePoke.isFainted) { advanceActor(); return; }
+
+    if (activePoke.v.forcedMove && activePoke.v.forcedMove.turnsLeft > 0) {
+        const forced = activePoke.moves.find(move => move.name === activePoke.v.forcedMove.name);
+        if (forced) {
+            printLog(`🔁 ${pname(activePoke)} è costretto a ripetere ${forced.name}!`);
+            queueAction(activePoke, forced, defaultTargetFor(activePoke, forced));
+            activePoke.v.forcedMove.turnsLeft--;
+            advanceActor();
+            return;
+        }
+    }
+
+    const action = botBestAction(activePoke);
+    if (botShouldSwitch(activePoke)) {
+        const replacement = chooseBotSwitch(2, currentSlotTurn);
+        if (replacement) {
+            printLog(`🔄 Il Bot valuta il campo e cambia ${pname(activePoke)} con ${replacement.name}.`);
+            queueSwitchAction(2, currentSlotTurn, activePoke, replacement);
+            return;
+        }
+    }
+    if (action && action.score > -500) {
+        queueAction(activePoke, action.move, action.target);
+        advanceActor();
+        return;
+    }
+    queueAction(activePoke, { name:"Attesa", type:"Puro", category:"Stato", bp:0, target:"Self" }, activePoke);
+    advanceActor();
 }
 
 function defaultTargetFor(attacker, move) {
@@ -877,8 +1158,9 @@ function advanceActor() {
         currentSlotTurn = 0;
         if (currentTrainerTurn === 1) {
             currentTrainerTurn = 2;
-            // Popup di passaggio dispositivo prima che Giocatore 2 selezioni le proprie azioni
-            showPassDevice(2, () => promptNextMove());
+            // Nella modalità Bot il secondo allenatore seleziona le azioni senza popup.
+            if (isBotMode()) promptNextMove();
+            else showPassDevice(2, () => promptNextMove());
         }
         else { currentTrainerTurn = 1; executeTurnQueue(); }
     } else {
@@ -920,7 +1202,7 @@ function directSwitchIn(trainerId, slot, newPoke) {
     if (old) old.resetOnSwitchOut();
     active[slot] = newPoke;
     newPoke.activeSlot = slot;
-    printLog(`🔄 Giocatore ${trainerId} manda in campo ${newPoke.name}!`);
+    printLog(`🔄 ${trainerId === 2 && isBotMode() ? "Il Bot" : `Giocatore ${trainerId}`} manda in campo ${newPoke.name}!`);
     triggerEntryAbility(newPoke);
     updateUI();
 }
@@ -1258,6 +1540,17 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             gameState.pendingReturn.push({ poke: attacker, slot, trainerId });
 
             printLog(`🚬 ${pname(attacker)} esce per una pausa sigaretta! Rientrerà a fine turno.`);
+            if (isBotMode() && trainerId === 2) {
+                const replacement = chooseBotSwitch(trainerId, slot, bench);
+                if (replacement) {
+                    directSwitchIn(trainerId, slot, replacement);
+                    // Il lockout viene impostato dopo lo switch perché il reset del Pokémon
+                    // uscito azzera i contatori temporanei.
+                    attacker.v.moveLockout['Pausa Siga'] = 2;
+                    onComplete();
+                    return;
+                }
+            }
             showModal(`Chi mandi in campo al posto di ${attacker.name}?`, bench.map(b => ({
                 label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
                 onClick: () => {
@@ -1330,8 +1623,15 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
         case 'multi_hit': break; // gestito con hit multipli extra nel wrapper sotto
         case 'prenotata':
             if (defender) {
-                let choice = window.prompt(`${attacker.name} usa Prenotata su ${defender.name}. Quale mossa di ${defender.name} deve ripetere per 3 turni? (${defender.moves.map(m=>m.name).join(', ')})`, defender.moves[0].name);
-                let mv = defender.moves.find(m=>m.name===choice) || defender.moves[0];
+                let mv;
+                if (isBotMode() && attacker.trainerId === 2) {
+                    mv = defender.moves
+                        .map((candidate, index) => ({ candidate, index, score: botActionScore(defender, candidate, defaultTargetFor(defender, candidate)) }))
+                        .sort((a, b) => b.score - a.score || a.index - b.index)[0].candidate;
+                } else {
+                    let choice = window.prompt(`${attacker.name} usa Prenotata su ${defender.name}. Quale mossa di ${defender.name} deve ripetere per 3 turni? (${defender.moves.map(m=>m.name).join(', ')})`, defender.moves[0].name);
+                    mv = defender.moves.find(m=>m.name===choice) || defender.moves[0];
+                }
                 defender.v.forcedMove = { name: mv.name, turnsLeft: 3 };
                 printLog(`🔒 ${pname(defender)} è costretto a ripetere ${mv.name} per 3 turni!`);
             }
@@ -1392,7 +1692,10 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             const bench = (defender.trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
             if (bench.length === 0) { printLog(`Subito a Casa! fallisce: nessun sostituto disponibile.`); break; }
             const slot = defender.activeSlot;
-            directSwitchIn(defender.trainerId, slot, bench[0]);
+            const replacement = isBotMode() && defender.trainerId === 2
+                ? chooseBotSwitch(defender.trainerId, slot, bench)
+                : bench[0];
+            directSwitchIn(defender.trainerId, slot, replacement);
             break;
         }
         case 'bomba_maradona': break; // STAB forzato già gestito nei dati (stab:true)
@@ -1603,8 +1906,9 @@ function finishRound() {
     currentSlotTurn = 0;
     updateUI();
     if (!checkWinner()) {
-        // Popup di passaggio dispositivo a inizio di ogni nuovo turno
-        showPassDevice(1, () => promptNextMove());
+        // Il popup è necessario solo nella partita locale.
+        if (isBotMode()) promptNextMove();
+        else showPassDevice(1, () => promptNextMove());
     }
 }
 
@@ -1647,6 +1951,16 @@ function processForcedSwitchQueue(queue, idx, onAllResolved) {
     const bench = (trainerId===1?gameState.p1Team:gameState.p2Team).filter(p=>!p.isFainted && p.activeSlot===null);
     if (bench.length === 0) { processForcedSwitchQueue(queue, idx+1, onAllResolved); return; }
 
+    if (isBotMode() && trainerId === 2) {
+        const replacement = chooseBotSwitch(trainerId, slot, bench);
+        if (replacement) {
+            printLog(`⏳ Il Bot manda in campo ${replacement.name} nello slot ${slot+1}.`);
+            directSwitchIn(trainerId, slot, replacement);
+            processForcedSwitchQueue(queue, idx+1, onAllResolved);
+            return;
+        }
+    }
+
     printLog(`⏳ Giocatore ${trainerId} deve mandare in campo un nuovo Pokémon nello slot ${slot+1}.`);
     showModal(`Giocatore ${trainerId}: scegli il prossimo Pokémon (slot ${slot+1})`, bench.map(b => ({
         label: `${b.name} (HP ${b.hp}/${b.maxHp})`,
@@ -1657,4 +1971,7 @@ function processForcedSwitchQueue(queue, idx, onAllResolved) {
     })));
 }
 
-window.onload = () => { initRosterSelection(); };
+window.onload = () => {
+    initRosterSelection();
+    showModeSelection();
+};
