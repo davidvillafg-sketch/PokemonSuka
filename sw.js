@@ -11,13 +11,38 @@
  * il browser scarica una nuova copia di sw.js quando GitHub Pages la aggiorna.
  */
 
-const CACHE_NAME = 'pokemon-suka-shell-v4';
+const CACHE_NAME = 'pokemon-suka-shell-v5';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './game.js?v=single-player-1',
   './manifest.json',
+  './pokemon-images.js',
+  './game.js',
+  './styles.css',
+  './pwa.js',
+  './images/pokemon/pie.png',
+  './images/pokemon/isco.png',
+  './images/pokemon/feb.png',
+  './images/pokemon/giana.png',
+  './images/pokemon/poppe.png',
+  './images/pokemon/andra.png',
+  './images/pokemon/steo.png',
+  './images/pokemon/lalla.png',
+  './images/pokemon/ksenija.png',
+  './images/pokemon/franca.png',
+  './images/pokemon/fera.png',
+  './images/pokemon/altini.png',
+  './images/pokemon/matte-iliev.png',
+  './images/pokemon/ressa.png',
+  './images/pokemon/becchio.png',
+  './images/pokemon/salvo.png',
+  './images/pokemon/rebi.png',
+  './images/pokemon/mimmuzzo.png',
+  './images/pokemon/sara.png',
+  './images/pokemon/elena.png',
+  './images/pokemon/brillo.png',
+  './images/pokemon/murru.png',
   './icon-180.png',
   './icon-192.png',
   './icon-512.png'
@@ -28,7 +53,15 @@ const APP_SHELL = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
+      .then(cache =>
+        // Le icone sono opzionali: se non sono presenti nella repository,
+        // il gioco deve comunque poter installare la cache offline.
+        Promise.all(
+          APP_SHELL.map(asset =>
+            cache.add(asset).catch(() => undefined)
+          )
+        )
+      )
   );
 });
 
