@@ -158,6 +158,25 @@ const RAW_POKEMON_DATA = [
       ]}
 ];
 
+/*
+ * Le immagini non fanno parte dei dati di gioco: vengono risolte dal
+ * catalogo esterno caricato da pokemon-images.js. Il fallback a null è
+ * intenzionale: un Pokémon senza file continua a funzionare senza
+ * generare immagini rotte o eccezioni.
+ */
+function normalizePokemonImageKey(name) {
+    return String(name || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+}
+
+RAW_POKEMON_DATA.forEach(pokemon => {
+    const imageCatalog = window.POKEMON_IMAGES || {};
+    pokemon.image = imageCatalog[normalizePokemonImageKey(pokemon.name)] || null;
+});
+
 const TYPE_CHART = {
     "Puro":     { weak:["Esotico","Fumo","Alcol"], resist:["Lercio","Dittatore"] },
     "Ingegno":  { weak:["Chill","Alcol"], resist:["Ingegno","Fitness","Terrone"] },
@@ -652,7 +671,7 @@ function pname(poke) {
 // correttamente, così un riferimento rotto non rompe mai il layout.
 function pokeThumbHtml(poke, sizeClass) {
     if (!poke || !poke.image) return '';
-    return `<img src="${poke.image}" class="${sizeClass}" onerror="this.style.display='none'" alt="${poke.name}">`;
+    return `<img src="${poke.image}" class="${sizeClass}" loading="lazy" onerror="this.remove()" alt="${poke.name}">`;
 }
 
 /* =========================================================================

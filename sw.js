@@ -11,16 +11,41 @@
  * il browser scarica una nuova copia di sw.js quando GitHub Pages la aggiorna.
  */
 
-const CACHE_NAME = 'pokemon-suka-shell-v5';
+const CACHE_NAME = 'pokemon-suka-shell-v11';
 
 const APP_SHELL = [
   './',
   './index.html',
-  './game.js?v=single-player-1',
+  './styles.css',
+  './pokemon-images.js?v=11',
+  './game.js?v=images-v11',
+  './pwa.js',
   './manifest.json',
   './icon-180.png',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './pokemon-images/pie.png',
+  './pokemon-images/isco.png',
+  './pokemon-images/feb.png',
+  './pokemon-images/giana.png',
+  './pokemon-images/poppe.png',
+  './pokemon-images/andra.png',
+  './pokemon-images/steo.png',
+  './pokemon-images/lalla.png',
+  './pokemon-images/ksenija.png',
+  './pokemon-images/franca.png',
+  './pokemon-images/fera.png',
+  './pokemon-images/altini.png',
+  './pokemon-images/matte-iliev.png',
+  './pokemon-images/ressa.png',
+  './pokemon-images/becchio.png',
+  './pokemon-images/salvo.png',
+  './pokemon-images/rebi.png',
+  './pokemon-images/mimmuzzo.png',
+  './pokemon-images/sara.png',
+  './pokemon-images/elena.png',
+  './pokemon-images/brillo.png',
+  './pokemon-images/murru.png'
 ];
 
 // Installazione: prepariamo la nuova cache, ma NON prendiamo subito il controllo
@@ -28,7 +53,15 @@ const APP_SHELL = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
+      .then(cache =>
+        // Un file opzionale mancante (per esempio un'icona PWA) non deve
+        // impedire l'installazione dell'intera cache dell'app.
+        Promise.all(
+          APP_SHELL.map(resource =>
+            cache.add(resource).catch(() => null)
+          )
+        )
+      )
   );
 });
 
