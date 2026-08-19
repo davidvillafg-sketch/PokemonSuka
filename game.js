@@ -1220,6 +1220,18 @@ function executeTurnQueue() {
     printLog("<br>--- <b>INIZIO TURNO</b> ---");
     gameState.roundNumber++;
 
+    // Le mosse di protezione (Sorriso/Balzata ecc.) devono proteggere SOLO durante il
+    // turno in cui sono state usate, senza alcun effetto residuo in quelli successivi.
+    // Azzeriamo quindi i flag di protezione per TUTTI gli attivi all'inizio di ogni
+    // nuovo turno, invece di farlo solo quando il singolo Pokémon torna ad agire: in
+    // questo modo casi come sonno/gelo/confusione che gli impediscono di muoversi, o un
+    // tentennamento (flinch) che salta del tutto la sua azione, non lasciano la vecchia
+    // protezione attiva "a scrocco" nel turno seguente.
+    allActive().forEach(p => {
+        p.v.protectedThisTurn = false;
+        p.v.protectedFromMalesThisTurn = false;
+    });
+
     // Gli switch manuali posticipati hanno SEMPRE priorità massima: vengono risolti
     // tutti, per entrambi i giocatori, prima di qualunque mossa (incluse quelle a
     // priorità +3 come Sorriso/Balzata). Vengono eseguiti nell'ordine in cui sono
@@ -1322,8 +1334,9 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         onComplete(); return;
     }
 
-    attacker.v.protectedThisTurn = false;
-    attacker.v.protectedFromMalesThisTurn = false;
+    // (I flag di protezione vengono ora azzerati centralmente a inizio turno in
+    // executeTurnQueue, per coprire correttamente anche i casi in cui l'attaccante non
+    // riesce ad agire questo turno: vedi commento lì.)
     attacker.v.lastMoveUsed = move.name;
     attacker.v.hasActedOnce = true;
 
