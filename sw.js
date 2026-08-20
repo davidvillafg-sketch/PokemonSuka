@@ -11,14 +11,14 @@
  * il browser scarica una nuova copia di sw.js quando GitHub Pages la aggiorna.
  */
 
-const CACHE_NAME = 'pokemon-suka-shell-v13';
+const CACHE_NAME = 'pokemon-suka-shell-v12';
 
 const APP_SHELL = [
   './',
   './index.html',
   './styles.css',
   './pokemon-images.js?v=11',
-  './game.js?v=game-v13',
+  './game.js?v=game-v12',
   './pwa.js',
   './manifest.json',
   './icon-180.png',
