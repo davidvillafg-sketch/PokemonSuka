@@ -1,4 +1,4 @@
-# Manuale Ufficiale — Pokémon Personalizzato
+# Manuale Ufficiale — Pokémon Suka
 
 Questo documento è la documentazione ufficiale e completa del gioco. Contiene tutte le regole, le meccaniche, i tipi, gli stati, i terreni/climi e la scheda completa di ogni Pokémon disponibile nel pool attuale. È pensato per essere leggibile sia da chi conosce già Pokémon competitivo sia da chi si approccia per la prima volta a questo sistema custom.
 
@@ -100,7 +100,7 @@ Le mosse possono avere diversi tipi di bersaglio:
 |---|---|
 | Single Target | Un singolo Pokémon scelto, alleato o avversario a seconda della mossa |
 | Self | Chi usa la mossa |
-| All Allies | Tutti i Pokémon alleati in campo (spesso incluso chi usa la mossa) |
+| All Allies | Tutti i Pokémon alleati in campo |
 | All Opponents | Tutti i Pokémon avversari in campo |
 | All Pokemon | Tutti i Pokémon in campo, alleati e avversari |
 
