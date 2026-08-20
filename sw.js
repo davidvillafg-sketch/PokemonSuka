@@ -4,11 +4,11 @@
  * Strategia:
  * - cache-first per le risorse già scaricate, così l'app continua a funzionare offline;
  * - aggiornamento in background delle risorse locali;
- * - una nuova versione NON prende il controllo della pagina mentre è aperta;
- * - la nuova versione diventa attiva alla successiva apertura/ricarica dell'app.
+ * - una nuova versione può essere attivata automaticamente dal pwa.js;
+ * - dopo l'attivazione, pwa.js ricarica la pagina per usare subito i file nuovi.
  *
- * Non è necessario cambiare manualmente CACHE_NAME quando modifichi index.html:
- * il browser scarica una nuova copia di sw.js quando GitHub Pages la aggiorna.
+ * Il numero di cache viene incrementato insieme alle versioni dei file principali
+ * per evitare che restino risorse della versione precedente.
  */
 
 const CACHE_NAME = 'pokemon-suka-shell-v14';
@@ -17,7 +17,7 @@ const APP_SHELL = [
   './',
   './index.html',
   './styles.css',
-  './pokemon-images.js?v=12',
+  './pokemon-images.js?v=14',
   './game.js?v=game-v14',
   './pwa.js',
   './manifest.json',
@@ -63,11 +63,19 @@ self.addEventListener('install', event => {
         )
       )
   );
+  // Non lasciare la nuova versione in attesa dietro al vecchio worker:
+  // serve a sbloccare anche gli aggiornamenti quando pwa.js è ancora cached.
+  self.skipWaiting();
 });
 
-// Attivazione: elimina le vecchie cache.
-// NON chiamiamo clients.claim(): una partita già aperta continua quindi
-// a essere servita dalla vecchia versione fino alla successiva apertura.
+// Permette a pwa.js di chiedere l'attivazione immediata della nuova versione.
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// Attivazione: elimina le vecchie cache e prende il controllo delle pagine.
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -76,7 +84,7 @@ self.addEventListener('activate', event => {
           .filter(key => key.startsWith('pokemon-suka-shell-') && key !== CACHE_NAME)
           .map(key => caches.delete(key))
       )
-    )
+    ).then(() => self.clients.claim())
   );
 });
 
