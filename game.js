@@ -1135,24 +1135,64 @@ function defaultTargetFor(attacker, move) {
 }
 
 function onMoveChosen(attacker, move) {
+    const enemies = enemyActive(attacker.trainerId);
+    const allies = sideActive(attacker.trainerId).filter(p => p !== attacker);
+    let targetOptions = [];
+
     if (move.target === 'Single Target') {
-        const enemies = enemyActive(attacker.trainerId);
-        const allies = sideActive(attacker.trainerId).filter(p=>p!==attacker);
-        // mosse che colpiscono alleati o sé (Whisky, Rutto no, Grattini can target ally/self, Altini Marito any, Punto Chill any)
-        const candidates = ['Grattini','Altini Marito','Punto Chill'].includes(move.name)
-            ? [...allies, ...enemies, attacker]
-            : (attacker.v.mustAttackTarget ? [attacker.v.mustAttackTarget] : enemies);
-        if (candidates.length === 1) { queueAction(attacker, move, candidates[0]); advanceActor(); return; }
-        const redirecting = candidates.find(e=>e.v.redirectTurns>0 && enemies.includes(e));
-        if (redirecting) { queueAction(attacker, move, redirecting); advanceActor(); return; }
-        showModal(`${attacker.name}: scegli bersaglio per ${move.name}`, candidates.map(c => ({
-            label: `${c.name} (${c.trainerId===attacker.trainerId?'alleato':'avversario'})`,
-            onClick: () => { queueAction(attacker, move, c); advanceActor(); }
-        })));
-        return;
+        // Ogni mossa a bersaglio singolo può ora scegliere anche un alleato in campo.
+        // Le mosse già abilitate a colpire sé stessi mantengono questa possibilità.
+        const canTargetSelf = ['Grattini', 'Altini Marito', 'Punto Chill'].includes(move.name);
+        const candidates = attacker.v.mustAttackTarget && !attacker.v.mustAttackTarget.isFainted
+            ? [attacker.v.mustAttackTarget]
+            : [...allies, ...enemies, ...(canTargetSelf ? [attacker] : [])];
+
+        // Abilità/effetti di reindirizzamento continuano a prevalere sulla scelta manuale,
+        // ma il menu viene comunque mostrato per permettere di deselezionare la mossa.
+        const redirecting = candidates.find(e => e.v.redirectTurns > 0 && enemies.includes(e));
+        targetOptions = (redirecting ? [redirecting] : candidates).map(target => ({
+            label: `${target.name} (${target.trainerId === attacker.trainerId
+                ? (target === attacker ? 'sé stesso' : 'alleato')
+                : 'avversario'})`,
+            onClick: () => { queueAction(attacker, move, target); advanceActor(); }
+        }));
+    } else if (move.target === 'Self') {
+        targetOptions = [{
+            label: `${attacker.name} (sé stesso)`,
+            // Per mantenere invariata la risoluzione delle mosse Self, il bersaglio
+            // effettivo resta null come nel comportamento precedente.
+            onClick: () => { queueAction(attacker, move, null); advanceActor(); }
+        }];
+    } else if (move.target === 'All Allies') {
+        targetOptions = [{
+            label: 'Tutti gli alleati',
+            onClick: () => { queueAction(attacker, move, null); advanceActor(); }
+        }];
+    } else if (move.target === 'All Opponents') {
+        targetOptions = [{
+            label: 'Tutti gli avversari',
+            onClick: () => { queueAction(attacker, move, null); advanceActor(); }
+        }];
+    } else if (move.target === 'All Pokemon') {
+        targetOptions = [{
+            label: 'Tutti',
+            onClick: () => { queueAction(attacker, move, null); advanceActor(); }
+        }];
+    } else {
+        // Fallback per eventuali categorie future: conserva il comportamento precedente.
+        targetOptions = [{
+            label: 'Conferma mossa',
+            onClick: () => { queueAction(attacker, move, defaultTargetFor(attacker, move)); advanceActor(); }
+        }];
     }
-    queueAction(attacker, move, defaultTargetFor(attacker, move));
-    advanceActor();
+
+    // La mossa non viene ancora messa in coda: il giocatore può sempre tornare
+    // alla griglia e sceglierne un'altra per il Pokémon corrente.
+    targetOptions.push({
+        label: '↩ Deseleziona mossa',
+        onClick: () => promptNextMove()
+    });
+    showModal(`${attacker.name}: scegli bersaglio per ${move.name}`, targetOptions);
 }
 
 function queueAction(actor, move, target) {
