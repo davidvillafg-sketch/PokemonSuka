@@ -380,7 +380,12 @@ class BattlePokemon {
         this.v.frozenAtkNoLeave = null;
         this.v.accuracyPenalty = 0;
         this.v.giaLastDamagingRound = -Infinity;
-        this.status.counter = 0; // i contatori si azzerano, ma lo stato resta (glossario)
+        // Sleep e Frozen mantengono il proprio avanzamento anche quando il Pokémon
+        // esce dal campo. Gli altri status conservano invece il comportamento
+        // precedente: il loro contatore viene azzerato allo switch.
+        if (this.status.type !== 'Sleep' && this.status.type !== 'Frozen') {
+            this.status.counter = 0;
+        }
         this.types = [...this.originalTypes];
         this.gender = this.originalGender;
         this.activeSlot = null;
@@ -760,7 +765,7 @@ function restoreControlsArea() {
         </div>
         <div style="display: flex; flex-direction: column; gap: 5px; justify-content: center;">
             <button class="secondary-btn" onclick="openSwitchMenu()">Cambia Pokémon</button>
-            <button class="secondary-btn" onclick="skipTurn()">Salta Turno</button>
+            <button class="secondary-btn quit-battle-btn" onclick="quitBattle()">Abbandona battaglia</button>
         </div>`;
 }
 
@@ -1209,6 +1214,32 @@ function skipTurn() {
     if (!activePoke) { advanceActor(); return; }
     queueAction(activePoke, { name:"Attesa", type:"Puro", category:"Stato", bp:0, target:"Self" }, activePoke);
     advanceActor();
+}
+
+function quitBattle() {
+    const root = document.getElementById("modal-root");
+    root.innerHTML = `<div class="modal-overlay"><div class="modal-box pass-device-box">
+        <h3>Abbandonare la battaglia?</h3>
+        <p>La partita corrente verrà annullata e tornerai alla scelta della modalità.</p>
+        <div id="quit-battle-btn-holder"></div>
+    </div></div>`;
+
+    const holder = document.getElementById("quit-battle-btn-holder");
+    const quitBtn = document.createElement("button");
+    quitBtn.innerText = "Sì, abbandona";
+    quitBtn.style.background = "#e74c3c";
+    quitBtn.onclick = () => {
+        root.innerHTML = "";
+        resetGame();
+    };
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.innerText = "Annulla";
+    cancelBtn.style.background = "#7f8c8d";
+    cancelBtn.onclick = () => closeModal();
+
+    holder.appendChild(quitBtn);
+    holder.appendChild(cancelBtn);
 }
 
 function advanceActor() {
