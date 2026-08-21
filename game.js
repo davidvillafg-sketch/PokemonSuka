@@ -982,7 +982,7 @@ function botTeamCandidateScore(candidate, chosen, playerIndices) {
 function weightedBotTeamPick(candidates) {
     const highest = Math.max(...candidates.map(candidate => candidate.value));
     const weighted = candidates.map(candidate => ({
-        candidate,
+        entry: candidate,
         // I candidati migliori hanno più probabilità, ma non monopolizzano
         // sempre la scelta. La temperatura mantiene la selezione sensata.
         weight: Math.exp((candidate.value - highest) / 28)
@@ -992,9 +992,9 @@ function weightedBotTeamPick(candidates) {
 
     for (const item of weighted) {
         roll -= item.weight;
-        if (roll <= 0) return item.candidate;
+        if (roll <= 0) return item.entry.candidate;
     }
-    return weighted[weighted.length - 1].candidate;
+    return weighted[weighted.length - 1].entry.candidate;
 }
 
 function chooseBotTeam(playerIndices=[]) {
