@@ -396,6 +396,7 @@ class BattlePokemon {
    HELPERS DI CAMPO
    ========================================================================= */
 function allActive() { return [...gameState.p1Active, ...gameState.p2Active].filter(p => p && !p.isFainted); }
+function allPokemonTargets(attacker) { return allActive().filter(p => p !== attacker); }
 function sideActive(trainerId) { return (trainerId===1?gameState.p1Active:gameState.p2Active).filter(p=>p && !p.isFainted); }
 function enemyActive(trainerId) { return sideActive(trainerId===1?2:1); }
 function allyOf(poke) { return sideActive(poke.trainerId).find(p=>p!==poke); }
@@ -1102,7 +1103,7 @@ function botActionScore(attacker, move, target) {
     if (!move.bp) return botStatusScore(attacker, move, target);
 
     const targets = move.target === 'All Opponents' ? enemyActive(attacker.trainerId)
-        : move.target === 'All Pokemon' ? allActive()
+        : move.target === 'All Pokemon' ? allPokemonTargets(attacker)
         : move.target === 'All Allies' ? sideActive(attacker.trainerId)
         : move.target === 'Self' ? [attacker]
         : [target].filter(Boolean);
@@ -1550,9 +1551,10 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         onComplete(); return;
     }
 
+    const isMultiTargetMove = ['All Opponents', 'All Pokemon', 'All Allies'].includes(move.target);
     if (move.target === 'Single Target' && move.category !== 'Stato') {
         if (!checkAccuracy(attacker, defender, move)) { printLog(`❌ ${move.name} non va a segno!`); onComplete(); return; }
-    } else if (move.accuracy != null) {
+    } else if (move.accuracy != null && !isMultiTargetMove) {
         if (!checkAccuracy(attacker, defender || attacker, move)) {
             printLog(`❌ ${move.name} non va a segno!`);
             runMoveEffect(move, attacker, defender, { failed:true }, onComplete);
@@ -1575,7 +1577,27 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     }
 
     if (move.category === 'Stato' && move.bp === 0) {
-        runMoveEffect(move, attacker, defender, {}, onComplete);
+        if (isMultiTargetMove && move.accuracy != null) {
+            const statusTargets = move.target === 'All Opponents' ? enemyActive(attacker.trainerId)
+                : move.target === 'All Pokemon' ? allPokemonTargets(attacker)
+                : move.target === 'All Allies' ? sideActive(attacker.trainerId)
+                : [];
+            const successfulTargets = statusTargets.filter(target => {
+                if (target.isFainted) return false;
+                if (!checkAccuracy(attacker, target, move)) {
+                    printLog(`❌ ${move.name} non va a segno su ${pname(target)}!`);
+                    return false;
+                }
+                if (target !== attacker && isProtected(target, attacker, move)) {
+                    printLog(`🛡️ ${pname(target)} si protegge!`);
+                    return false;
+                }
+                return true;
+            });
+            runMoveEffect(move, attacker, defender, { targets: statusTargets, successfulTargets }, onComplete);
+        } else {
+            runMoveEffect(move, attacker, defender, {}, onComplete);
+        }
         return;
     }
 
@@ -1583,15 +1605,21 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
     let targets = [];
     if (move.target === 'Single Target') targets = [defender].filter(Boolean);
     else if (move.target === 'All Opponents') targets = enemyActive(attacker.trainerId);
-    else if (move.target === 'All Pokemon') targets = allActive();
+    else if (move.target === 'All Pokemon') targets = allPokemonTargets(attacker);
     else if (move.target === 'All Allies') targets = sideActive(attacker.trainerId);
     else if (move.target === 'Self') targets = [attacker];
 
     const isCrit = move.effect === 'crit_always';
     let totalDamage = 0;
+    const successfulTargets = [];
     targets.forEach(t => {
         if (t.isFainted) return;
+        if (move.accuracy != null && !checkAccuracy(attacker, t, move)) {
+            printLog(`❌ ${move.name} non va a segno su ${pname(t)}!`);
+            return;
+        }
         if (t !== attacker && isProtected(t, attacker, move)) { printLog(`🛡️ ${pname(t)} si protegge!`); return; }
+        successfulTargets.push(t);
         const { dmg, tMod } = computeDamage(attacker, t, move, { isCrit, numTargets: targets.length });
         if (tMod === 0) { printLog(`🚫 Non ha effetto su ${pname(t)}.`); return; }
         // Recoil: contiamo solo gli HP EFFETTIVAMENTE sottratti (capped a 0), non il danno
@@ -1612,7 +1640,7 @@ function executeSingleAction(attacker, defender, move, flinchedSet, onComplete) 
         if (attacker.hp === 0) { attacker.isFainted = true; printLog(`💀 ${pname(attacker)} è andato KO per il contraccolpo!`); }
     }
 
-    runMoveEffect(move, attacker, defender, { targets, totalDamage }, () => {
+    runMoveEffect(move, attacker, defender, { targets, successfulTargets, totalDamage }, () => {
         targets.forEach(t => { if (t.isFainted) handleFaint(t); });
         if (attacker.isFainted) handleFaint(attacker);
         onComplete();
@@ -1645,6 +1673,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
     if (!eff) { onComplete(); return; }
     const enemies = enemyActive(attacker.trainerId);
     const allies = sideActive(attacker.trainerId);
+    const allPokemonEffectTargets = ctx.successfulTargets || allPokemonTargets(attacker);
 
     switch (eff) {
         case 'hyper_poison':
@@ -1742,7 +1771,7 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             changeStage(attacker, {Atk:2, Def:2, Spe:-1});
             break;
         case 'burn_status':
-            (move.target==='All Pokemon'?allActive():enemyActive(attacker.trainerId)).forEach(t => tryInflictStatus(t, 'Burn'));
+            (move.target==='All Pokemon'?allPokemonEffectTargets:enemyActive(attacker.trainerId)).forEach(t => tryInflictStatus(t, 'Burn'));
             break;
         case 'burn_status_single':
             if (defender) tryInflictStatus(defender, 'Burn');
@@ -1850,10 +1879,10 @@ function runMoveEffect(move, attacker, defender, ctx, onComplete) {
             break;
         case 'signorina_daloia': break; // moltiplicatore gestito in computeDamage extra
         case 'esame_sorpresa':
-            allActive().filter(p=>p.types.includes('Ingegno')).forEach(p => changeStage(p, {Spe:-1, SpA:-1, SpD:-1}));
+            allPokemonEffectTargets.filter(p=>p.types.includes('Ingegno')).forEach(p => changeStage(p, {Spe:-1, SpA:-1, SpD:-1}));
             break;
         case 'gender_pay_gap':
-            allActive().forEach(p => {
+            allPokemonEffectTargets.forEach(p => {
                 if (p.gender === 'Maschio') changeStage(p, {Atk:-1, SpA:-1});
                 else changeStage(p, {Atk:1, SpA:1});
             });
