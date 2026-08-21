@@ -11,7 +11,7 @@
  * per evitare che restino risorse della versione precedente.
  */
 
-const CACHE_NAME = 'pokemon-suka-shell-v16';
+const CACHE_NAME = 'pokemon-suka-shell-v17';
 
 const APP_SHELL = [
   './',
@@ -99,6 +99,13 @@ self.addEventListener('fetch', event => {
 
   // Gestiamo solo le risorse della stessa origine.
   if (url.origin !== self.location.origin) return;
+
+  // Il controllo versione deve passare dalla rete quando disponibile, ma non
+  // deve diventare una nuova voce permanente nella cache offline ogni minuto.
+  if (url.searchParams.has('app-version-check')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then(cachedResponse => {
