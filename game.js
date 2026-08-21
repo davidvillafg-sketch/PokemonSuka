@@ -927,32 +927,100 @@ function botTeamValue(data) {
     return total + bestAttack * 0.8 + bestMoves * 0.35 + (hasUtility ? 24 : 0) + b.HP * 0.2;
 }
 
+function botTeamRoles(data) {
+    const b = data.base;
+    return {
+        physical: b.Atk >= b.SpA * 1.12,
+        special: b.SpA >= b.Atk * 1.12,
+        utility: data.moves.some(move => move.category === 'Stato'),
+        fast: b.Spe >= 80,
+        durable: b.HP + b.Def + b.SpD >= 245
+    };
+}
+
+function botTeamCandidateScore(candidate, chosen, playerIndices) {
+    const data = candidate.data;
+    const roles = botTeamRoles(data);
+    const chosenData = chosen.map(index => RAW_POKEMON_DATA[index]);
+    const chosenTypes = chosenData.flatMap(pokemon => pokemon.types);
+    const playerData = playerIndices.map(index => RAW_POKEMON_DATA[index]);
+
+    let score = candidate.score;
+
+    // Premia tipi e mosse che ampliano la squadra invece di duplicarla.
+    const newTypes = data.types.filter(type => !chosenTypes.includes(type)).length;
+    score += newTypes * 15;
+    score -= data.types.filter(type => chosenTypes.includes(type)).length * 3;
+
+    // Cerca copertura utile contro i tipi scelti dal giocatore.
+    const coveredPlayerTypes = new Set();
+    data.moves.forEach(move => {
+        if (!move.bp) return;
+        playerData.forEach(player => {
+            if (typeMultiplier(move.type, player.types) > 1) {
+                coveredPlayerTypes.add(player.types.join('/'));
+            }
+        });
+    });
+    score += coveredPlayerTypes.size * 13;
+
+    // Costruisce una squadra con ruoli diversi, senza imporre una composizione fissa.
+    const chosenRoles = chosenData.map(botTeamRoles);
+    if (roles.physical && !chosenRoles.some(role => role.physical)) score += 14;
+    if (roles.special && !chosenRoles.some(role => role.special)) score += 14;
+    if (roles.utility && !chosenRoles.some(role => role.utility)) score += 10;
+    if (roles.fast && !chosenRoles.some(role => role.fast)) score += 7;
+    if (roles.durable && !chosenRoles.some(role => role.durable)) score += 7;
+
+    // Il Bot può condividere un Pokémon con il giocatore, ma tende a preferire
+    // alternative per rendere le partite meno ripetitive.
+    if (playerIndices.includes(candidate.index)) score -= 5;
+
+    return score;
+}
+
+function weightedBotTeamPick(candidates) {
+    const highest = Math.max(...candidates.map(candidate => candidate.value));
+    const weighted = candidates.map(candidate => ({
+        candidate,
+        // I candidati migliori hanno più probabilità, ma non monopolizzano
+        // sempre la scelta. La temperatura mantiene la selezione sensata.
+        weight: Math.exp((candidate.value - highest) / 28)
+    }));
+    const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
+    let roll = Math.random() * totalWeight;
+
+    for (const item of weighted) {
+        roll -= item.weight;
+        if (roll <= 0) return item.candidate;
+    }
+    return weighted[weighted.length - 1].candidate;
+}
+
 function chooseBotTeam(playerIndices=[]) {
     const ranked = RAW_POKEMON_DATA.map((data, index) => ({
         data,
         index,
         score: botTeamValue(data)
-    })).sort((a, b) => b.score - a.score || a.index - b.index);
+    }));
 
     const chosen = [];
-    const chosenTypes = [];
     while (chosen.length < 4 && ranked.length) {
-        let best = null;
-        ranked.forEach(candidate => {
-            if (chosen.includes(candidate.index)) return;
-            const newTypes = candidate.data.types.filter(type => !chosenTypes.includes(type)).length;
-            const coverage = candidate.data.moves.reduce((sum, move) => {
-                return sum + (move.bp > 0 && !chosenTypes.includes(move.type) ? 4 : 0);
-            }, 0);
-            const duplicatePenalty = playerIndices.includes(candidate.index) ? 2 : 0;
-            const value = candidate.score + newTypes * 13 + coverage - duplicatePenalty;
-            if (!best || value > best.value || (value === best.value && candidate.index < best.candidate.index)) {
-                best = { candidate, value };
-            }
-        });
-        if (!best) break;
-        chosen.push(best.candidate.index);
-        best.candidate.data.types.forEach(type => { if (!chosenTypes.includes(type)) chosenTypes.push(type); });
+        const available = ranked
+            .filter(candidate => !chosen.includes(candidate.index))
+            .map(candidate => ({
+                candidate,
+                value: botTeamCandidateScore(candidate, chosen, playerIndices)
+            }))
+            .sort((a, b) => b.value - a.value);
+
+        if (!available.length) break;
+
+        // Si considerano i migliori candidati, non tutto il catalogo: la casualità
+        // modifica la squadra senza trasformare la scelta in un sorteggio puro.
+        const topCandidates = available.slice(0, Math.min(6, available.length));
+        const selected = weightedBotTeamPick(topCandidates);
+        chosen.push(selected.index);
     }
     return chosen;
 }
