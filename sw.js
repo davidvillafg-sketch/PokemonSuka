@@ -11,14 +11,14 @@
  * per evitare che restino risorse della versione precedente.
  */
 
-const CACHE_NAME = 'pokemon-suka-shell-v18';
+const CACHE_NAME = 'pokemon-suka-shell-v19';
 
 const APP_SHELL = [
   './',
   './index.html',
   './styles.css',
-  './pokemon-images.js?v=18',
-  './game.js?v=game-v18',
+  './pokemon-images.js?v=19',
+  './game.js?v=game-v19',
   './pwa.js',
   './manifest.json',
   './icon-180.png',

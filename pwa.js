@@ -1,4 +1,4 @@
-const APP_VERSION = '18';
+const APP_VERSION = '19';
 
 if ('serviceWorker' in navigator) {
     let refreshing = false;

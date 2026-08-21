@@ -1408,10 +1408,27 @@ function executeTurnQueue() {
 
     roundActions = moveActions;
 
+    // A parità di priority e velocità, assegniamo un sorteggio stabile per tutta
+    // la risoluzione del turno. In questo modo l'ordine è uniforme tra i Pokémon
+    // in parità senza usare un comparatore casuale, che potrebbe produrre ordini
+    // non uniformi durante i confronti interni di Array.sort().
+    const tieGroups = new Map();
+    moveActions.forEach(action => {
+        const key = `${movePriority(action)}|${getStat(action.actor,'Spe')}`;
+        if (!tieGroups.has(key)) tieGroups.set(key, []);
+        tieGroups.get(key).push(action);
+    });
+    const tieBreakers = new Map();
+    tieGroups.forEach(group => {
+        if (group.length > 1) group.forEach(action => tieBreakers.set(action, Math.random()));
+    });
+
     roundActions.sort((a,b) => {
         let pa = movePriority(a), pb = movePriority(b);
         if (pa !== pb) return pb - pa;
-        return getStat(b.actor,'Spe') - getStat(a.actor,'Spe');
+        const speedDifference = getStat(b.actor,'Spe') - getStat(a.actor,'Spe');
+        if (speedDifference !== 0) return speedDifference;
+        return (tieBreakers.get(a) || 0) - (tieBreakers.get(b) || 0);
     });
 
     // Fermii: se è la prima mossa in ordine di priorità di chi la usa ed è la prima volta che agisce, fa flinchare chi deve ancora muoversi
